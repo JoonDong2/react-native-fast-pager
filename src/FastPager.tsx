@@ -179,10 +179,23 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
 
         this.currentIndex = targetIdx;
 
+        // [Aborted Swipe] When snapping back below the threshold, keep the
+        // previewed screen attached (activityState 1) as a departing screen so
+        // react-native-screens detaches it only after the snap-back animation
+        // finishes (renderMode='native'), instead of disappearing instantly.
+        const previewIndex = this.state.swipingToIndex;
+        const departingIndex =
+          targetIdx === currentIdx &&
+          previewIndex !== null &&
+          previewIndex !== targetIdx
+            ? previewIndex
+            : this.state.departingIndex;
+
         this.setState(
           {
             transitionTarget: targetIdx,
             swipingToIndex: null,
+            departingIndex,
           },
           () => {
             if (targetIdx !== currentIdx) {
@@ -197,10 +210,17 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
 
       onPanResponderTerminate: () => {
         const currentIdx = this.currentIndex;
+        // [Aborted Swipe] Same as onPanResponderRelease: keep the previewed
+        // screen attached until the snap-back animation finishes.
+        const previewIndex = this.state.swipingToIndex;
         this.setState(
           {
             transitionTarget: currentIdx,
             swipingToIndex: null,
+            departingIndex:
+              previewIndex !== null && previewIndex !== currentIdx
+                ? previewIndex
+                : this.state.departingIndex,
           },
           () => {
             this.runAnimation(currentIdx);
