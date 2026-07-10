@@ -1,6 +1,10 @@
 import { Component } from 'react';
 import { Animated, PanResponder, View } from 'react-native';
-import type { LayoutChangeEvent, PanResponderInstance } from 'react-native';
+import type {
+  LayoutChangeEvent,
+  PanResponderGestureState,
+  PanResponderInstance,
+} from 'react-native';
 import { ScreenContainer } from 'react-native-screens';
 import { PagerItem } from './PagerItem';
 import {
@@ -271,94 +275,87 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       },
 
       onPanResponderRelease: (_, gestureState) => {
-        const currentIdx = this.currentIndex;
-        const containerSize = this.getCurrentContainerSize();
-        if (containerSize === 0) {
-          this.setState({
-            isAnimating: false,
-            swipingToIndex: null,
-            transitionTarget: null,
-          });
-          return;
-        }
-
-        const delta = this.props.vertical ? gestureState.dy : gestureState.dx;
-        const velocityValue = this.props.vertical
-          ? gestureState.vy
-          : gestureState.vx;
-
-        const offset = -delta / containerSize;
-        const velocity = -velocityValue;
-        const childCount = this.props.children.length;
-
-        let targetIdx = currentIdx;
-        const canGoNext = currentIdx < childCount - 1;
-        const canGoPrev = currentIdx > 0;
-
-        if (
-          canGoNext &&
-          (velocity > VELOCITY_THRESHOLD || offset > SWIPE_THRESHOLD)
-        ) {
-          targetIdx = currentIdx + 1;
-        } else if (
-          canGoPrev &&
-          (velocity < -VELOCITY_THRESHOLD || offset < -SWIPE_THRESHOLD)
-        ) {
-          targetIdx = currentIdx - 1;
-        }
-
-        this.currentIndex = targetIdx;
-
-        // [Aborted Swipe] When snapping back below the threshold, keep the
-        // previewed screen attached (activityState 1) as a departing screen so
-        // react-native-screens detaches it only after the snap-back animation
-        // finishes (renderMode='native'), instead of disappearing instantly.
-        const previewIndex = this.state.swipingToIndex;
-        const departingIndex =
-          targetIdx === currentIdx &&
-          previewIndex !== null &&
-          previewIndex !== targetIdx
-            ? previewIndex
-            : this.state.departingIndex;
-
-        this.setState(
-          {
-            transitionTarget: targetIdx,
-            swipingToIndex: null,
-            departingIndex,
-          },
-          () => {
-            if (targetIdx !== currentIdx) {
-              this.ensureMounted(targetIdx);
-              this.props.onIndexChange?.(targetIdx);
-            }
-            // Pass current (previous) index as fromIndex to track departing screen
-            this.runAnimation(targetIdx, Math.abs(velocity), currentIdx);
-          }
-        );
+        this.settlePan(gestureState);
       },
 
-      onPanResponderTerminate: () => {
-        const currentIdx = this.currentIndex;
-        // [Aborted Swipe] Same as onPanResponderRelease: keep the previewed
-        // screen attached until the snap-back animation finishes.
-        const previewIndex = this.state.swipingToIndex;
-        this.setState(
-          {
-            transitionTarget: currentIdx,
-            swipingToIndex: null,
-            departingIndex:
-              previewIndex !== null && previewIndex !== currentIdx
-                ? previewIndex
-                : this.state.departingIndex,
-          },
-          () => {
-            this.runAnimation(currentIdx);
-          }
-        );
+      // iOS never consults onPanResponderTerminationRequest when a native
+      // responder (e.g. an enclosing scroll view) takes over, so an
+      // intentional horizontal swipe can be cancelled mid-gesture. Settle
+      // with the same offset/velocity decision as a release instead of
+      // unconditionally snapping back.
+      onPanResponderTerminate: (_, gestureState) => {
+        this.settlePan(gestureState);
       },
     });
   }
+
+  settlePan = (gestureState: PanResponderGestureState) => {
+    const currentIdx = this.currentIndex;
+    const containerSize = this.getCurrentContainerSize();
+    if (containerSize === 0) {
+      this.setState({
+        isAnimating: false,
+        swipingToIndex: null,
+        transitionTarget: null,
+      });
+      return;
+    }
+
+    const delta = this.props.vertical ? gestureState.dy : gestureState.dx;
+    const velocityValue = this.props.vertical
+      ? gestureState.vy
+      : gestureState.vx;
+
+    const offset = -delta / containerSize;
+    const velocity = -velocityValue;
+    const childCount = this.props.children.length;
+
+    let targetIdx = currentIdx;
+    const canGoNext = currentIdx < childCount - 1;
+    const canGoPrev = currentIdx > 0;
+
+    if (
+      canGoNext &&
+      (velocity > VELOCITY_THRESHOLD || offset > SWIPE_THRESHOLD)
+    ) {
+      targetIdx = currentIdx + 1;
+    } else if (
+      canGoPrev &&
+      (velocity < -VELOCITY_THRESHOLD || offset < -SWIPE_THRESHOLD)
+    ) {
+      targetIdx = currentIdx - 1;
+    }
+
+    this.currentIndex = targetIdx;
+
+    // [Aborted Swipe] When snapping back below the threshold, keep the
+    // previewed screen attached (activityState 1) as a departing screen so
+    // react-native-screens detaches it only after the snap-back animation
+    // finishes (renderMode='native'), instead of disappearing instantly.
+    const previewIndex = this.state.swipingToIndex;
+    const departingIndex =
+      targetIdx === currentIdx &&
+      previewIndex !== null &&
+      previewIndex !== targetIdx
+        ? previewIndex
+        : this.state.departingIndex;
+
+    this.setState(
+      {
+        transitionTarget: targetIdx,
+        swipingToIndex: null,
+        departingIndex,
+      },
+      () => {
+        if (targetIdx !== currentIdx) {
+          this.ensureMounted(targetIdx);
+          this.props.onIndexChange?.(targetIdx);
+        }
+        // Pass current (previous) index as fromIndex to track departing screen
+        this.runAnimation(targetIdx, Math.abs(velocity), currentIdx);
+      }
+    );
+  };
 
   resolveProgressBinding = (): ProgressBinding | null => {
     const handler = this.props.onProgressChange;
