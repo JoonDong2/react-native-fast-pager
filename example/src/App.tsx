@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   FlatList,
@@ -169,17 +169,17 @@ const TABS = ['Ingredients', 'Steps'];
 
 function TabBar({
   index,
-  animatedIndex,
+  progress,
   onPress,
 }: {
   index: number;
-  animatedIndex: Animated.Value;
+  progress: Animated.Value;
   onPress: (i: number) => void;
 }) {
   const { width } = useWindowDimensions();
   const tabWidth = width / TABS.length;
 
-  const indicatorTranslateX = animatedIndex.interpolate({
+  const indicatorTranslateX = progress.interpolate({
     inputRange: TABS.map((_, i) => i),
     outputRange: TABS.map((_, i) => i * tabWidth),
     extrapolate: 'clamp',
@@ -234,9 +234,16 @@ const ITEMS = ['header', 'tab', 'pager'] as const;
 
 export default function App() {
   const [tabIndex, setTabIndex] = useState(0);
-  const animatedIndex = useRef(new Animated.Value(0)).current;
+  const progress = useRef(new Animated.Value(0)).current;
   const { height: screenHeight } = useWindowDimensions();
   const flatlistRef = useRef<FlatList>(null);
+  const onProgressChange = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { progress } }], {
+        useNativeDriver: true,
+      }),
+    [progress]
+  );
 
   // Approximate content min height so FastPager fills remaining space
   const contentMinHeight = screenHeight - 48; // tab height
@@ -258,7 +265,7 @@ export default function App() {
           return (
             <TabBar
               index={tabIndex}
-              animatedIndex={animatedIndex}
+              progress={progress}
               onPress={onIndexChange}
             />
           );
@@ -267,7 +274,7 @@ export default function App() {
             <FastPager
               index={tabIndex}
               onIndexChange={onIndexChange}
-              animatedIndex={animatedIndex}
+              onProgressChange={onProgressChange}
             >
               <IngredientsScreen minHeight={contentMinHeight} />
               <StepsScreen minHeight={contentMinHeight} />
@@ -275,7 +282,7 @@ export default function App() {
           );
       }
     },
-    [tabIndex, animatedIndex, onIndexChange, contentMinHeight]
+    [tabIndex, progress, onProgressChange, onIndexChange, contentMinHeight]
   );
 
   return (

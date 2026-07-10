@@ -75,7 +75,7 @@ function App() {
 FlatList와 함께 사용하여 sticky 탭 바를 구현하는 예시입니다:
 
 ```tsx
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Animated, FlatList, View } from 'react-native';
 import FastPager from 'react-native-fast-pager';
 
@@ -83,7 +83,14 @@ const ITEMS = ['header', 'tab', 'pager'] as const;
 
 function App() {
   const [tabIndex, setTabIndex] = useState(0);
-  const animatedIndex = useRef(new Animated.Value(0)).current;
+  const progress = useRef(new Animated.Value(0)).current;
+  const onProgressChange = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { progress } }], {
+        useNativeDriver: true,
+      }),
+    [progress]
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: (typeof ITEMS)[number] }) => {
@@ -91,13 +98,13 @@ function App() {
         case 'header':
           return <Header />;
         case 'tab':
-          return <TabBar index={tabIndex} animatedIndex={animatedIndex} onPress={setTabIndex} />;
+          return <TabBar index={tabIndex} progress={progress} onPress={setTabIndex} />;
         case 'pager':
           return (
             <FastPager
               index={tabIndex}
               onIndexChange={setTabIndex}
-              animatedIndex={animatedIndex}
+              onProgressChange={onProgressChange}
             >
               <ScreenA />
               <ScreenB />
@@ -105,7 +112,7 @@ function App() {
           );
       }
     },
-    [tabIndex, animatedIndex]
+    [tabIndex, progress, onProgressChange]
   );
 
   return (
@@ -119,7 +126,9 @@ function App() {
 }
 ```
 
-`animatedIndex`를 외부에서 전달하면 탭 인디케이터 애니메이션 등과 동기화할 수 있습니다.
+`FastPager`는 `onProgressChange`로 진행 값을 전달합니다. 일반 콜백뿐 아니라 `useNativeDriver: true`/`false` 어느 쪽의 `Animated.event` 매핑도 전달할 수 있습니다.
+
+`useNativeDriver: true`에 표준 `[{ nativeEvent: { progress } }]` 매핑을 사용하면 pager가 매핑된 `Animated.Value`를 native driver 애니메이션으로 직접 구동하므로, 전환 프레임이 JS 스레드를 거치지 않습니다. 이 값을 읽는 곳은 native driver 호환(transform, opacity)이어야 하고, 다른 곳에서 이 값을 애니메이션하면 안 됩니다. `useNativeDriver: false` 또는 일반 콜백은 매 프레임 JavaScript에서 값을 전달합니다.
 
 ## Props
 
@@ -128,11 +137,11 @@ function App() {
 | `children` | `PagerItemType[]` | *필수* | 전환할 페이지 목록. ReactElement 또는 render function. |
 | `index` | `number` | `0` | 현재 활성 페이지의 인덱스. |
 | `onIndexChange` | `(index: number) => void` | - | 스와이프로 페이지 인덱스가 변경될 때 호출됩니다. |
+| `onProgressChange` | `(event: { nativeEvent: { progress: number } }) => void` | - | animated progress가 변경될 때 호출됩니다. `Animated.event([{ nativeEvent: { progress } }])`와 함께 사용할 수 있으며, `useNativeDriver: true`면 매핑된 값을 네이티브에서 직접 구동합니다. |
 | `renderMode` | `'view' \| 'native'` | `'native'` | `'native'`로 설정하면 네이티브 `ScreenContainer` 구현을 사용합니다. |
 | `animationType` | `'slide' \| 'fade' \| 'fade-slide' \| 'none'` | `'slide'` | 전환 애니메이션 종류. |
 | `swipeEnabled` | `boolean` | `true` | 스와이프 제스처 활성화 여부. |
 | `vertical` | `boolean` | `false` | `true`로 설정하면 세로 방향으로 전환합니다. |
-| `animatedIndex` | `Animated.Value` | - | 외부에서 애니메이션 인덱스를 제어할 때 사용합니다. 탭 인디케이터 동기화 등에 유용합니다. |
 | `keepAlive` | `number` | `undefined` (무제한) | 마운트 상태를 유지할 최대 페이지 수. 메모리 최적화에 사용합니다. |
 | `freeze` | `boolean` | `true` | 비활성 페이지에 `react-freeze`를 적용할지 여부. |
 | `layout` | `{ width?: number; height?: number }` | - | 컨테이너 크기를 직접 지정합니다. 미지정 시 `onLayout`으로 자동 측정됩니다. |
@@ -148,7 +157,7 @@ function App() {
 | 메서드 | Type | 설명 |
 |---|---|---|
 | `goTo` | `(index: number, animated?: boolean) => void` | 지정한 인덱스로 이동합니다. |
-| `animatedIndex` | `Animated.Value` | 현재 애니메이션 인덱스 값. |
+| `progress` | `Animated.Value` | 현재 animated progress 값. |
 
 ## Exports
 
@@ -157,6 +166,7 @@ import FastPager, {
   ActivityState,
   type RenderMode,
   type AnimationType,
+  type FastPagerProgressChangeEvent,
   type FastPagerInstance,
   type FastPagerProps,
 } from 'react-native-fast-pager';

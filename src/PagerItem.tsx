@@ -11,7 +11,7 @@ export const PagerItem = memo(
   ({
     children,
     itemIndex,
-    animatedIndex,
+    progress,
     isActive,
     offset,
     animationType,
@@ -27,8 +27,8 @@ export const PagerItem = memo(
       [itemIndex, offset]
     );
     const diff = useMemo(
-      () => Animated.subtract(effectiveIndex, animatedIndex),
-      [effectiveIndex, animatedIndex]
+      () => Animated.subtract(effectiveIndex, progress),
+      [effectiveIndex, progress]
     );
 
     const animatedStyle = useMemo(() => {

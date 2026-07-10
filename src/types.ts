@@ -19,6 +19,12 @@ export type PagerItemType =
     }) => ReactElement)
   | ReactElement;
 
+export interface FastPagerProgressChangeEvent {
+  nativeEvent: {
+    progress: number;
+  };
+}
+
 export interface FastPagerProps {
   children: PagerItemType[];
   renderMode?: RenderMode;
@@ -34,14 +40,14 @@ export interface FastPagerProps {
   onSwipeStart?: () => void;
   onSwipeEnd?: (index: number) => void;
   swipeEnabled?: boolean;
-  animatedIndex?: Animated.Value;
+  onProgressChange?: (event: FastPagerProgressChangeEvent) => void;
   animationType?: AnimationType;
   onLayout?: (event: LayoutChangeEvent) => void;
   freeze?: boolean;
 }
 
 export interface FastPagerInstance {
-  animatedIndex: Animated.Value;
+  progress: Animated.Value;
   goTo: (index: number, animated?: boolean) => void;
 }
 
@@ -58,7 +64,7 @@ export interface FastPagerState {
 export interface PagerItemProps {
   children: PagerItemType;
   itemIndex: number;
-  animatedIndex: Animated.Value;
+  progress: Animated.Value;
   containerSize: number;
   vertical?: boolean;
   isActive: boolean;

@@ -75,7 +75,7 @@ Pass children as functions to receive `activityState`, `priority`, and `diff`:
 An example of building a sticky tab bar with FlatList:
 
 ```tsx
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Animated, FlatList, View } from 'react-native';
 import FastPager from 'react-native-fast-pager';
 
@@ -83,7 +83,14 @@ const ITEMS = ['header', 'tab', 'pager'] as const;
 
 function App() {
   const [tabIndex, setTabIndex] = useState(0);
-  const animatedIndex = useRef(new Animated.Value(0)).current;
+  const progress = useRef(new Animated.Value(0)).current;
+  const onProgressChange = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { progress } }], {
+        useNativeDriver: true,
+      }),
+    [progress]
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: (typeof ITEMS)[number] }) => {
@@ -91,13 +98,13 @@ function App() {
         case 'header':
           return <Header />;
         case 'tab':
-          return <TabBar index={tabIndex} animatedIndex={animatedIndex} onPress={setTabIndex} />;
+          return <TabBar index={tabIndex} progress={progress} onPress={setTabIndex} />;
         case 'pager':
           return (
             <FastPager
               index={tabIndex}
               onIndexChange={setTabIndex}
-              animatedIndex={animatedIndex}
+              onProgressChange={onProgressChange}
             >
               <ScreenA />
               <ScreenB />
@@ -105,7 +112,7 @@ function App() {
           );
       }
     },
-    [tabIndex, animatedIndex]
+    [tabIndex, progress, onProgressChange]
   );
 
   return (
@@ -119,7 +126,9 @@ function App() {
 }
 ```
 
-Passing `animatedIndex` externally allows you to synchronize it with tab indicator animations, etc.
+`FastPager` reports progress through `onProgressChange`. It accepts a plain callback or an `Animated.event` mapping with either `useNativeDriver: true` or `useNativeDriver: false`.
+
+With `useNativeDriver: true` and the standard `[{ nativeEvent: { progress } }]` mapping, the pager drives the mapped `Animated.Value` directly with its native-driver animations, so transition frames never cross the JS thread. Everything reading that value must stay native-driver compatible (transforms, opacity), and the value should not be animated from anywhere else. With `useNativeDriver: false` or a plain callback, updates are delivered from JavaScript on every frame.
 
 ## Props
 
@@ -128,11 +137,11 @@ Passing `animatedIndex` externally allows you to synchronize it with tab indicat
 | `children` | `PagerItemType[]` | *required* | Pages to transition between. ReactElement or render function. |
 | `index` | `number` | `0` | Currently active page index. |
 | `onIndexChange` | `(index: number) => void` | - | Called when the page index changes via swipe. |
+| `onProgressChange` | `(event: { nativeEvent: { progress: number } }) => void` | - | Called as animated progress changes. Compatible with `Animated.event([{ nativeEvent: { progress } }])`; with `useNativeDriver: true` the mapped value is driven natively. |
 | `renderMode` | `'view' \| 'native'` | `'native'` | Set to `'native'` to use the native `ScreenContainer` implementation. |
 | `animationType` | `'slide' \| 'fade' \| 'fade-slide' \| 'none'` | `'slide'` | Transition animation type. |
 | `swipeEnabled` | `boolean` | `true` | Whether swipe gestures are enabled. |
 | `vertical` | `boolean` | `false` | Set to `true` to transition vertically. |
-| `animatedIndex` | `Animated.Value` | - | Externally controlled animated index. Useful for syncing tab indicators. |
 | `keepAlive` | `number` | `undefined` (unlimited) | Maximum number of pages to keep mounted. Used for memory optimization. |
 | `freeze` | `boolean` | `true` | Whether to apply `react-freeze` to inactive pages. |
 | `layout` | `{ width?: number; height?: number }` | - | Manually specify container size. Auto-measured via `onLayout` if not provided. |
@@ -148,7 +157,7 @@ Access imperative methods via `ref`:
 | Method | Type | Description |
 |---|---|---|
 | `goTo` | `(index: number, animated?: boolean) => void` | Navigate to the given index. |
-| `animatedIndex` | `Animated.Value` | Current animated index value. |
+| `progress` | `Animated.Value` | Current animated progress value. |
 
 ## Exports
 
@@ -157,6 +166,7 @@ import FastPager, {
   ActivityState,
   type RenderMode,
   type AnimationType,
+  type FastPagerProgressChangeEvent,
   type FastPagerInstance,
   type FastPagerProps,
 } from 'react-native-fast-pager';

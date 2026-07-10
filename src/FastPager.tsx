@@ -10,10 +10,139 @@ import {
   INITIAL_PRELOAD_THRESHOLD,
 } from './constants';
 import { styles } from './styles';
-import type { FastPagerProps, FastPagerState } from './types';
+import type {
+  FastPagerProgressChangeEvent,
+  FastPagerProps,
+  FastPagerState,
+} from './types';
+
+// Animated.event(..., { useNativeDriver: true }) returns an AnimatedEvent
+// object instead of a handler function. When its mapping is the documented
+// { nativeEvent: { progress } } shape, the pager adopts the mapped value and
+// drives it directly with its native-driver animations, so transition frames
+// never round-trip through JS. Other object mappings fall back to a JS
+// emitter that replicates RN's JS-driver mapping; plain functions (including
+// useNativeDriver: false handlers) are simply called with the event.
+type AnimatedEventObject = {
+  _argMapping?: unknown[];
+  _listeners?: unknown[];
+  __getHandler?: () => (...args: unknown[]) => void;
+};
+
+type ProgressBinding = {
+  source: NonNullable<FastPagerProps['onProgressChange']>;
+} & (
+  | { kind: 'emit'; emit: (event: FastPagerProgressChangeEvent) => void }
+  | {
+      kind: 'adopt';
+      value: Animated.Value;
+      emitListeners: ((event: FastPagerProgressChangeEvent) => void) | null;
+    }
+);
+
+const extractMappedProgressValue = (
+  animatedEvent: AnimatedEventObject
+): Animated.Value | null => {
+  const firstMapping = Array.isArray(animatedEvent._argMapping)
+    ? (animatedEvent._argMapping[0] as
+        | { nativeEvent?: { progress?: unknown } }
+        | undefined)
+    : undefined;
+  const mappedProgress = firstMapping?.nativeEvent?.progress;
+  return mappedProgress instanceof Animated.Value ? mappedProgress : null;
+};
+
+const drivenValueForHandler = (
+  handler: FastPagerProps['onProgressChange'],
+  fallback: Animated.Value
+): Animated.Value => {
+  if (!handler || typeof handler === 'function') return fallback;
+  return extractMappedProgressValue(handler as AnimatedEventObject) ?? fallback;
+};
+
+const mapEventToAnimatedValues = (mapping: unknown, value: unknown) => {
+  if (mapping instanceof Animated.Value) {
+    if (typeof value === 'number') {
+      mapping.setValue(value);
+    }
+    return;
+  }
+  if (
+    mapping !== null &&
+    typeof mapping === 'object' &&
+    value !== null &&
+    typeof value === 'object'
+  ) {
+    for (const key of Object.keys(mapping)) {
+      mapEventToAnimatedValues(
+        (mapping as Record<string, unknown>)[key],
+        (value as Record<string, unknown>)[key]
+      );
+    }
+  }
+};
+
+const createAnimatedEventEmitter = (animatedEvent: AnimatedEventObject) => {
+  const argMapping = Array.isArray(animatedEvent._argMapping)
+    ? animatedEvent._argMapping
+    : null;
+  const callListeners =
+    typeof animatedEvent.__getHandler === 'function'
+      ? animatedEvent.__getHandler()
+      : null;
+
+  if (__DEV__ && !argMapping) {
+    console.warn(
+      'FastPager: onProgressChange expects a function or an Animated.event mapping, but received an object without _argMapping.'
+    );
+  }
+
+  return (event: FastPagerProgressChangeEvent) => {
+    if (argMapping) {
+      // The event is always the first (and only) emitted argument
+      mapEventToAnimatedValues(argMapping[0], event);
+    }
+    callListeners?.(event);
+  };
+};
+
+const createProgressBinding = (
+  handler: NonNullable<FastPagerProps['onProgressChange']>
+): ProgressBinding => {
+  if (typeof handler === 'function') {
+    return { source: handler, kind: 'emit', emit: handler };
+  }
+
+  const animatedEvent = handler as AnimatedEventObject;
+  const value = extractMappedProgressValue(animatedEvent);
+  if (!value) {
+    return {
+      source: handler,
+      kind: 'emit',
+      emit: createAnimatedEventEmitter(animatedEvent),
+    };
+  }
+
+  // Listeners are the only part of an adopted Animated.event that still needs
+  // the JS thread; skip them entirely when none were configured.
+  const emitListeners =
+    Array.isArray(animatedEvent._listeners) &&
+    animatedEvent._listeners.length > 0 &&
+    typeof animatedEvent.__getHandler === 'function'
+      ? animatedEvent.__getHandler()
+      : null;
+
+  return { source: handler, kind: 'adopt', value, emitListeners };
+};
 
 class FastPager extends Component<FastPagerProps, FastPagerState> {
-  private internalAnimatedIndex: Animated.Value;
+  private internalProgress: Animated.Value;
+  private progressBinding: ProgressBinding | null = null;
+  private attachedProgressListener: {
+    value: Animated.Value;
+    id: string;
+  } | null = null;
+  private lastProgressValue: number;
   private currentIndex: number; // Logical current index (equivalent to useRef in hooks)
   private itemOffsets: Record<number, Animated.Value> = {};
   private animationInstance: ReturnType<typeof Animated.spring> | null = null;
@@ -33,13 +162,14 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
 
     const initialIndex = props.index ?? 0;
     this.currentIndex = initialIndex;
+    this.lastProgressValue = initialIndex;
+    this.internalProgress = new Animated.Value(initialIndex);
 
-    // Sync initial value: if an external animatedIndex is provided, force-set it to the current index to prevent snapping to 0
-    if (props.animatedIndex) {
-      props.animatedIndex.setValue(initialIndex);
-      this.internalAnimatedIndex = props.animatedIndex;
-    } else {
-      this.internalAnimatedIndex = new Animated.Value(initialIndex);
+    // Seed an adopted Animated.event value so it does not snap from a stale
+    // position on the first transition
+    const binding = this.resolveProgressBinding();
+    if (binding?.kind === 'adopt') {
+      binding.value.setValue(initialIndex);
     }
 
     this.state = {
@@ -114,7 +244,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
           Math.min(childCount - 1 + 0.2, newProgress)
         );
 
-        this.getAnimatedIndex().setValue(clampedValue);
+        this.getProgress().setValue(clampedValue);
 
         // [Lazy Loading] Pre-mount target
         const targetIdx = offset > 0 ? currentIdx + 1 : currentIdx - 1;
@@ -230,8 +360,68 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     });
   }
 
-  getAnimatedIndex = (): Animated.Value => {
-    return this.props.animatedIndex ?? this.internalAnimatedIndex;
+  resolveProgressBinding = (): ProgressBinding | null => {
+    const handler = this.props.onProgressChange;
+    if (!handler) return null;
+    if (this.progressBinding?.source !== handler) {
+      this.progressBinding = createProgressBinding(handler);
+    }
+    return this.progressBinding;
+  };
+
+  getProgress = (): Animated.Value => {
+    const binding = this.resolveProgressBinding();
+    return binding?.kind === 'adopt' ? binding.value : this.internalProgress;
+  };
+
+  public get progress(): Animated.Value {
+    return this.getProgress();
+  }
+
+  emitProgressChange = (progress: number) => {
+    this.lastProgressValue = progress;
+    const binding = this.resolveProgressBinding();
+    if (!binding) return;
+
+    const event: FastPagerProgressChangeEvent = {
+      nativeEvent: {
+        progress,
+      },
+    };
+
+    if (binding.kind === 'emit') {
+      binding.emit(event);
+    } else {
+      // Adopted values are driven directly by the pager's animations; only
+      // Animated.event listeners still need a JS callback
+      binding.emitListeners?.(event);
+    }
+  };
+
+  // A per-frame JS listener is only needed when something must actually run
+  // on the JS thread: an emit-style handler or Animated.event listeners.
+  // Pure adopted bindings keep the transition entirely on the native side.
+  syncProgressListener = () => {
+    const binding = this.resolveProgressBinding();
+    const needsListener =
+      binding !== null &&
+      (binding.kind === 'emit' || binding.emitListeners !== null);
+    const target = needsListener ? this.getProgress() : null;
+
+    if (this.attachedProgressListener?.value === target) return;
+
+    if (this.attachedProgressListener) {
+      this.attachedProgressListener.value.removeListener(
+        this.attachedProgressListener.id
+      );
+      this.attachedProgressListener = null;
+    }
+    if (target) {
+      const id = target.addListener(({ value }) => {
+        this.emitProgressChange(value);
+      });
+      this.attachedProgressListener = { value: target, id };
+    }
   };
 
   getCurrentContainerSize = (): number => {
@@ -243,8 +433,19 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     return layoutProps?.width ?? layout.width;
   };
 
+  componentDidMount() {
+    this.syncProgressListener();
+    this.emitProgressChange(this.currentIndex);
+  }
+
   componentWillUnmount() {
     this.isUnmounted = true;
+    if (this.attachedProgressListener) {
+      this.attachedProgressListener.value.removeListener(
+        this.attachedProgressListener.id
+      );
+      this.attachedProgressListener = null;
+    }
     if (this.animationInstance) {
       this.animationInstance.stop();
       this.animationInstance = null;
@@ -252,21 +453,34 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
   }
 
   componentDidUpdate(prevProps: FastPagerProps) {
-    // Handle external animatedIndex instance swap
-    if (prevProps.animatedIndex !== this.props.animatedIndex) {
-      if (this.animationInstance) {
-        this.animationInstance.stop();
-        this.animationInstance = null;
-      }
-      // If the external prop was removed, reset internal fallback to a fresh value
-      if (!this.props.animatedIndex) {
-        this.internalAnimatedIndex = new Animated.Value(this.currentIndex);
-      }
-      this.getAnimatedIndex().setValue(this.currentIndex);
-    }
-
     const prevIndex = prevProps.index ?? 0;
     const nextIndex = this.props.index ?? 0;
+
+    if (prevProps.onProgressChange !== this.props.onProgressChange) {
+      const prevDrivenValue = drivenValueForHandler(
+        prevProps.onProgressChange,
+        this.internalProgress
+      );
+      const nextDrivenValue = this.getProgress();
+      const drivenValueChanged = prevDrivenValue !== nextDrivenValue;
+
+      if (drivenValueChanged) {
+        // The driven value itself was swapped: stop any in-flight animation
+        // and seat the new value at the current logical position
+        if (this.animationInstance) {
+          this.animationInstance.stop();
+          this.animationInstance = null;
+        }
+        nextDrivenValue.setValue(this.currentIndex);
+      }
+
+      this.syncProgressListener();
+      // lastProgressValue can be stale for pure adopted bindings (no JS
+      // listener), so fall back to the logical index when the value swapped
+      this.emitProgressChange(
+        drivenValueChanged ? this.currentIndex : this.lastProgressValue
+      );
+    }
 
     // When the external index prop changes
     if (prevIndex !== nextIndex) {
@@ -320,7 +534,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
         this.getItemOffset(nextIndex).setValue(0);
 
         // 3. Force-set the animated value
-        this.getAnimatedIndex().setValue(virtualStartIndex);
+        this.getProgress().setValue(virtualStartIndex);
 
         // 4. Run animation (virtualStartIndex -> nextIndex)
         // Visually appears as a single-step transition
@@ -328,7 +542,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       } else {
         // Standard adjacent transition (e.g. 0 -> 1)
         this.resetAllOffsets();
-        this.getAnimatedIndex().setValue(prevIndex);
+        this.getProgress().setValue(prevIndex);
         this.animateToIndex(nextIndex, true, prevIndex);
       }
     }
@@ -436,7 +650,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       this.setState({ departingIndex: departing });
     }
 
-    const anim = Animated.spring(this.getAnimatedIndex(), {
+    const anim = Animated.spring(this.getProgress(), {
       toValue: targetIndex,
       useNativeDriver: true,
       tension: 100,
@@ -474,7 +688,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       () => {
         if (!animated || this.props.animationType === 'none') {
           this.resetAllOffsets();
-          this.getAnimatedIndex().setValue(targetIndex);
+          this.getProgress().setValue(targetIndex);
           this.setState(
             {
               transitionTarget: null,
@@ -612,7 +826,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     // Compute mount order: convert mountedIndices (Set) to array
     // Since ensureMounted appends via 'delete -> add', later entries are newest
     const mountedOrderArray = Array.from(mountedIndices);
-    const animatedIndex = this.getAnimatedIndex();
+    const progress = this.getProgress();
 
     const useNativeScreens = mode === 'native';
     const Container = useNativeScreens ? ScreenContainer : View;
@@ -657,7 +871,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
               <PagerItem
                 key={i}
                 itemIndex={i}
-                animatedIndex={animatedIndex}
+                progress={progress}
                 activityState={this.getActivityState(i)}
                 containerSize={containerSize}
                 vertical={vertical}
