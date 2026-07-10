@@ -84,7 +84,10 @@ export const PagerItem = memo(
       ? children
       : children({ activityState, priority, diff });
 
-    const shouldFreeze = freeze && activityState !== ActivityState.FULL_ACTIVE;
+    // Freeze only fully inactive pages. react-freeze hides frozen subtrees
+    // via Suspense (display: none), so freezing PARTIAL_ACTIVE pages would
+    // hide swipe previews and transition targets while they are moving.
+    const shouldFreeze = freeze && activityState === ActivityState.INACTIVE;
 
     if (useNativeScreens) {
       return (
