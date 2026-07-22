@@ -35,13 +35,25 @@ const getNativeScreens = (renderer: ReactTestRenderer) =>
 
 const getScreen = (renderer: ReactTestRenderer, testID: string) => {
   const screen = getNativeScreens(renderer).find(
-    (candidate) =>
-      (candidate.props.children as React.ReactElement<{ testID?: string }>)
-        .props.testID === testID
+    (candidate) => candidate.findAllByProps({ testID }).length > 0
   );
   expect(screen).toBeDefined();
   return screen!;
 };
+
+const getContentContainer = (screen: ReactTestInstance) => {
+  const container = screen
+    .findAll(
+      (candidate) =>
+        candidate !== screen && candidate.props.collapsable === false
+    )
+    .at(-1);
+  expect(container).toBeDefined();
+  return container!;
+};
+
+const readOwnStyle = (node: ReactTestInstance) =>
+  StyleSheet.flatten(node.props.style) as ViewStyle | undefined;
 
 const readTranslation = (
   screen: ReactTestInstance,
@@ -151,6 +163,15 @@ describe('PagerItem native rendering', () => {
     expect(target.props.activityState).toBe(ActivityState.FULL_ACTIVE);
     expect(readPositionStyle(source)).toBeUndefined();
     expect(readPositionStyle(target)).toBe('absolute');
+    expect(readOwnStyle(getContentContainer(source))).toMatchObject({
+      flex: 1,
+      alignSelf: 'stretch',
+    });
+    expect(readOwnStyle(getContentContainer(target))).toMatchObject({
+      flex: 1,
+      alignSelf: 'stretch',
+    });
+    expect(readOwnStyle(getContentContainer(target))?.position).toBeUndefined();
     expect(readTranslation(source, 'translateX')).toBe(0);
     expect(readTranslation(target, 'translateX')).toBe(100);
 
@@ -185,6 +206,10 @@ describe('PagerItem native rendering', () => {
     expect(inactive.props.activityState).toBe(ActivityState.INACTIVE);
     expect(inactive.props.shouldFreeze).toBe(true);
     expect(inactive.props.pointerEvents).toBe('none');
+    expect(readPositionStyle(inactive)).toBe('absolute');
+    expect(
+      readOwnStyle(getContentContainer(inactive))?.position
+    ).toBeUndefined();
     expect(readTranslation(inactive, 'translateX')).toBe(100);
   });
 
