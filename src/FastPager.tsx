@@ -846,7 +846,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       freeze = true,
     } = this.props;
 
-    const { mountedIndices } = this.state;
+    const { mountedIndices, activeIndex } = this.state;
     const containerSize = this.getCurrentContainerSize();
     const renderIndices = this.getRenderIndices();
 
@@ -879,6 +879,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
               <PagerItem
                 key={i}
                 position={this.getItemPosition(i)}
+                isLayoutOwner={i === activeIndex}
                 activityState={activityState}
                 containerSize={containerSize}
                 vertical={vertical}

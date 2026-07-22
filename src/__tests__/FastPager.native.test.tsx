@@ -60,6 +60,7 @@ jest.mock('../PagerItem', () => {
 
       return ReactModule.createElement('PagerItem', {
         activityState: props.activityState,
+        isLayoutOwner: props.isLayoutOwner,
         itemIndex,
         position: props.position,
         useNativeScreens: props.useNativeScreens,
@@ -113,6 +114,18 @@ const expectPage = (
     position,
     useNativeScreens: true,
   });
+};
+
+const expectLayoutOwner = (
+  renderer: ReactTestRenderer,
+  itemIndex: number,
+  isLayoutOwner: boolean
+) => {
+  const item = renderer.root
+    .findAll((node) => String(node.type) === 'PagerItem')
+    .find((candidate) => candidate.props.itemIndex === itemIndex);
+
+  expect(item?.props.isLayoutOwner).toBe(isLayoutOwner);
 };
 
 describe('FastPager native screen transitions', () => {
@@ -188,6 +201,9 @@ describe('FastPager native screen transitions', () => {
     expectPage(renderer, 0, ActivityState.FULL_ACTIVE, 1);
     expectPage(renderer, 1, ActivityState.INACTIVE, 2);
     expectPage(renderer, 2, ActivityState.INACTIVE, 2);
+    expectLayoutOwner(renderer, 0, true);
+    expectLayoutOwner(renderer, 1, false);
+    expectLayoutOwner(renderer, 2, false);
   });
 
   it('keeps pages at fixed-slot positions for 0 -> 1', () => {
@@ -207,6 +223,8 @@ describe('FastPager native screen transitions', () => {
     expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 1);
     expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 2);
     expectPage(renderer, 2, ActivityState.INACTIVE, 2);
+    expectLayoutOwner(renderer, 0, true);
+    expectLayoutOwner(renderer, 1, false);
 
     act(() => {
       springs[0]!.setProgress(0.5);
@@ -219,6 +237,8 @@ describe('FastPager native screen transitions', () => {
     expectPage(renderer, 0, ActivityState.INACTIVE, 0);
     expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 1);
     expectPage(renderer, 2, ActivityState.INACTIVE, 2);
+    expectLayoutOwner(renderer, 0, false);
+    expectLayoutOwner(renderer, 1, true);
   });
 
   it('moves 0 -> 2 directly while page 1 stays detached in slot 2', () => {

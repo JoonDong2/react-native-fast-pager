@@ -11,6 +11,7 @@ export const PagerItem = memo(
   ({
     children,
     position,
+    isLayoutOwner,
     animationType,
     activityState,
     priority,
@@ -64,7 +65,7 @@ export const PagerItem = memo(
     };
 
     const commonStyle = [
-      styles.inactiveItem,
+      !isLayoutOwner && styles.inactiveItem,
       animatedStyle,
       styles.itemContainer,
       containerStyle,

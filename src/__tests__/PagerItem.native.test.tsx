@@ -81,9 +81,8 @@ const readPositionStyle = (screen: ReactTestInstance) => {
   let current: ReactTestInstance | null = screen;
 
   while (current) {
-    const style = StyleSheet.flatten(current.props.style) as
-      | ViewStyle
-      | undefined;
+    const props = current.props as { style?: ViewStyle } | null;
+    const style = StyleSheet.flatten(props?.style) as ViewStyle | undefined;
     if (style?.position) return style.position;
     current = current.parent;
   }
@@ -122,6 +121,7 @@ describe('PagerItem native rendering', () => {
         <>
           <PagerItem
             position={sourcePosition}
+            isLayoutOwner
             containerSize={100}
             animationType="slide"
             activityState={ActivityState.PARTIAL_ACTIVE}
@@ -132,6 +132,7 @@ describe('PagerItem native rendering', () => {
           </PagerItem>
           <PagerItem
             position={targetPosition}
+            isLayoutOwner={false}
             containerSize={100}
             animationType="slide"
             activityState={ActivityState.FULL_ACTIVE}
@@ -148,7 +149,7 @@ describe('PagerItem native rendering', () => {
     const target = getScreen(renderer, 'target');
     expect(source.props.activityState).toBe(ActivityState.PARTIAL_ACTIVE);
     expect(target.props.activityState).toBe(ActivityState.FULL_ACTIVE);
-    expect(readPositionStyle(source)).toBe('absolute');
+    expect(readPositionStyle(source)).toBeUndefined();
     expect(readPositionStyle(target)).toBe('absolute');
     expect(readTranslation(source, 'translateX')).toBe(0);
     expect(readTranslation(target, 'translateX')).toBe(100);
@@ -167,6 +168,7 @@ describe('PagerItem native rendering', () => {
       renderer = create(
         <PagerItem
           position={2}
+          isLayoutOwner={false}
           containerSize={100}
           animationType="slide"
           activityState={ActivityState.INACTIVE}
@@ -200,6 +202,7 @@ describe('PagerItem native rendering', () => {
         <>
           <PagerItem
             position={sourcePosition}
+            isLayoutOwner
             containerSize={100}
             vertical
             animationType="slide"
@@ -211,6 +214,7 @@ describe('PagerItem native rendering', () => {
           </PagerItem>
           <PagerItem
             position={targetPosition}
+            isLayoutOwner={false}
             containerSize={100}
             vertical
             animationType="slide"
