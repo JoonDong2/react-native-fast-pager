@@ -1,6 +1,6 @@
 {
   "name": "react-native-fast-pager",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "High-performance swipe pager for React Native",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
