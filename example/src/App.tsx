@@ -163,9 +163,26 @@ function StepsScreen({ minHeight }: { minHeight: number }) {
   );
 }
 
+function TipsScreen({ minHeight }: { minHeight: number }) {
+  return (
+    <View style={[styles.tabContent, { minHeight }]}>
+      <Text style={styles.tipsTitle}>Chef&apos;s Tips</Text>
+      <Text style={styles.tipsText}>
+        Pat the shrimp dry before seasoning so it sears instead of steaming.
+      </Text>
+      <Text style={styles.tipsText}>
+        Add the spinach at the end to keep its color and texture bright.
+      </Text>
+      <Text style={styles.tipsText}>
+        Reserve a little pasta water if you want to loosen the finished sauce.
+      </Text>
+    </View>
+  );
+}
+
 // ─── Tab Bar (sticky) ───────────────────────────────────────────────────────
 
-const TABS = ['Ingredients', 'Steps'];
+const TABS = ['Ingredients', 'Steps', 'Tips'];
 
 function TabBar({
   index,
@@ -278,6 +295,7 @@ export default function App() {
             >
               <IngredientsScreen minHeight={contentMinHeight} />
               <StepsScreen minHeight={contentMinHeight} />
+              <TipsScreen minHeight={contentMinHeight} />
             </FastPager>
           );
       }
@@ -387,7 +405,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#111',
   },
 
-  // Tab content (Ingredients / Steps)
+  // Tab content
   tabContent: {
     backgroundColor: '#fff',
     paddingHorizontal: 16,
@@ -458,5 +476,19 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#333',
     lineHeight: 22,
+  },
+
+  // Tips
+  tipsTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111',
+    marginBottom: 16,
+  },
+  tipsText: {
+    fontSize: 15,
+    color: '#333',
+    lineHeight: 22,
+    paddingBottom: 16,
   },
 });
