@@ -749,8 +749,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
   };
 
   getActivityState = (itemIndex: number): 0 | 1 | 2 => {
-    const { activeIndex, transitionTarget, swipingToIndex, isAnimating } =
-      this.state;
+    const { activeIndex, isAnimating } = this.state;
 
     if (!isAnimating) {
       return itemIndex === activeIndex
@@ -765,9 +764,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
         : ActivityState.INACTIVE;
     }
 
-    const isMovingToAnotherPage =
-      (transitionTarget !== null && transitionTarget !== activeIndex) ||
-      (swipingToIndex !== null && swipingToIndex !== activeIndex);
+    const isMovingToAnotherPage = this.isMovingToAnotherPage();
 
     if (isMovingToAnotherPage) {
       if (itemIndex === interactionTarget) return ActivityState.FULL_ACTIVE;
@@ -780,6 +777,28 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     if (itemIndex === activeIndex) return ActivityState.FULL_ACTIVE;
     if (itemIndex === interactionTarget) return ActivityState.PARTIAL_ACTIVE;
     return ActivityState.INACTIVE;
+  };
+
+  isMovingToAnotherPage = (): boolean => {
+    const { activeIndex, transitionTarget, swipingToIndex } = this.state;
+    return (
+      (transitionTarget !== null && transitionTarget !== activeIndex) ||
+      (swipingToIndex !== null && swipingToIndex !== activeIndex)
+    );
+  };
+
+  getLayoutOwnerIndex = (): number => {
+    const { activeIndex, isAnimating } = this.state;
+    const interactionTarget = this.getInteractionTarget();
+
+    if (
+      isAnimating &&
+      interactionTarget !== null &&
+      this.isMovingToAnotherPage()
+    ) {
+      return interactionTarget;
+    }
+    return activeIndex;
   };
 
   // --- Render Indices Calculation ---
@@ -846,9 +865,10 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       freeze = true,
     } = this.props;
 
-    const { mountedIndices, activeIndex } = this.state;
+    const { mountedIndices } = this.state;
     const containerSize = this.getCurrentContainerSize();
     const renderIndices = this.getRenderIndices();
+    const layoutOwnerIndex = this.getLayoutOwnerIndex();
 
     const useNativeScreens = mode === 'native';
     const Container = useNativeScreens ? ScreenContainer : View;
@@ -879,7 +899,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
               <PagerItem
                 key={i}
                 position={this.getItemPosition(i)}
-                isLayoutOwner={i === activeIndex}
+                isLayoutOwner={i === layoutOwnerIndex}
                 activityState={activityState}
                 containerSize={containerSize}
                 vertical={vertical}

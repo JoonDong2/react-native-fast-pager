@@ -223,8 +223,8 @@ describe('FastPager native screen transitions', () => {
     expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 1);
     expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 2);
     expectPage(renderer, 2, ActivityState.INACTIVE, 2);
-    expectLayoutOwner(renderer, 0, true);
-    expectLayoutOwner(renderer, 1, false);
+    expectLayoutOwner(renderer, 0, false);
+    expectLayoutOwner(renderer, 1, true);
 
     act(() => {
       springs[0]!.setProgress(0.5);
@@ -258,6 +258,9 @@ describe('FastPager native screen transitions', () => {
     expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 1);
     expectPage(renderer, 1, ActivityState.INACTIVE, 2);
     expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 2);
+    expectLayoutOwner(renderer, 0, false);
+    expectLayoutOwner(renderer, 1, false);
+    expectLayoutOwner(renderer, 2, true);
 
     act(() => {
       springs[0]!.setProgress(1);

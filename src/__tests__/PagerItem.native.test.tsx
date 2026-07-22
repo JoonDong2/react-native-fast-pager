@@ -35,25 +35,13 @@ const getNativeScreens = (renderer: ReactTestRenderer) =>
 
 const getScreen = (renderer: ReactTestRenderer, testID: string) => {
   const screen = getNativeScreens(renderer).find(
-    (candidate) => candidate.findAllByProps({ testID }).length > 0
+    (candidate) =>
+      (candidate.props.children as React.ReactElement<{ testID?: string }>)
+        .props.testID === testID
   );
   expect(screen).toBeDefined();
   return screen!;
 };
-
-const getContentContainer = (screen: ReactTestInstance) => {
-  const container = screen
-    .findAll(
-      (candidate) =>
-        candidate !== screen && candidate.props.collapsable === false
-    )
-    .at(-1);
-  expect(container).toBeDefined();
-  return container!;
-};
-
-const readOwnStyle = (node: ReactTestInstance) =>
-  StyleSheet.flatten(node.props.style) as ViewStyle | undefined;
 
 const readTranslation = (
   screen: ReactTestInstance,
@@ -133,7 +121,7 @@ describe('PagerItem native rendering', () => {
         <>
           <PagerItem
             position={sourcePosition}
-            isLayoutOwner
+            isLayoutOwner={false}
             containerSize={100}
             animationType="slide"
             activityState={ActivityState.PARTIAL_ACTIVE}
@@ -144,7 +132,7 @@ describe('PagerItem native rendering', () => {
           </PagerItem>
           <PagerItem
             position={targetPosition}
-            isLayoutOwner={false}
+            isLayoutOwner
             containerSize={100}
             animationType="slide"
             activityState={ActivityState.FULL_ACTIVE}
@@ -161,19 +149,8 @@ describe('PagerItem native rendering', () => {
     const target = getScreen(renderer, 'target');
     expect(source.props.activityState).toBe(ActivityState.PARTIAL_ACTIVE);
     expect(target.props.activityState).toBe(ActivityState.FULL_ACTIVE);
-    expect(readPositionStyle(source)).toBeUndefined();
-    expect(readPositionStyle(target)).toBe('absolute');
-    expect(readOwnStyle(getContentContainer(source))).toMatchObject({
-      flexGrow: 1,
-      alignSelf: 'stretch',
-    });
-    expect(readOwnStyle(getContentContainer(target))).toMatchObject({
-      flexGrow: 1,
-      alignSelf: 'stretch',
-    });
-    expect(readOwnStyle(getContentContainer(source))?.flex).toBeUndefined();
-    expect(readOwnStyle(getContentContainer(target))?.flex).toBeUndefined();
-    expect(readOwnStyle(getContentContainer(target))?.position).toBeUndefined();
+    expect(readPositionStyle(source)).toBe('absolute');
+    expect(readPositionStyle(target)).toBeUndefined();
     expect(readTranslation(source, 'translateX')).toBe(0);
     expect(readTranslation(target, 'translateX')).toBe(100);
 
@@ -209,9 +186,6 @@ describe('PagerItem native rendering', () => {
     expect(inactive.props.shouldFreeze).toBe(true);
     expect(inactive.props.pointerEvents).toBe('none');
     expect(readPositionStyle(inactive)).toBe('absolute');
-    expect(
-      readOwnStyle(getContentContainer(inactive))?.position
-    ).toBeUndefined();
     expect(readTranslation(inactive, 'translateX')).toBe(100);
   });
 
@@ -229,7 +203,7 @@ describe('PagerItem native rendering', () => {
         <>
           <PagerItem
             position={sourcePosition}
-            isLayoutOwner
+            isLayoutOwner={false}
             containerSize={100}
             vertical
             animationType="slide"
@@ -241,7 +215,7 @@ describe('PagerItem native rendering', () => {
           </PagerItem>
           <PagerItem
             position={targetPosition}
-            isLayoutOwner={false}
+            isLayoutOwner
             containerSize={100}
             vertical
             animationType="slide"
@@ -257,6 +231,8 @@ describe('PagerItem native rendering', () => {
 
     const source = getScreen(renderer, 'reverse-source');
     const target = getScreen(renderer, 'reverse-target');
+    expect(readPositionStyle(source)).toBe('absolute');
+    expect(readPositionStyle(target)).toBeUndefined();
     expect(readTranslation(source, 'translateY')).toBe(0);
     expect(readTranslation(target, 'translateY')).toBe(-100);
 

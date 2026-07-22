@@ -1,5 +1,5 @@
 import { isValidElement, memo, useMemo } from 'react';
-import { Animated, View } from 'react-native';
+import { Animated } from 'react-native';
 import { Screen } from 'react-native-screens';
 import { Freeze } from 'react-freeze';
 import { ActivityState, type PagerItemProps } from './types';
@@ -90,11 +90,7 @@ export const PagerItem = memo(
             activityState === ActivityState.FULL_ACTIVE ? 'auto' : 'none'
           }
         >
-          {/* Keep page content in a stable normal-flow layout even when the
-              native Screen root is absolutely parked in slot 0 or 2. */}
-          <View collapsable={false} style={styles.contentContainer}>
-            {childContent}
-          </View>
+          {childContent}
         </AnimatedScreen>
       );
     }
