@@ -147,9 +147,14 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     value: Animated.Value;
     id: string;
   } | null = null;
+  // A redirected transition needs its own 0 -> 1 visual clock. Reusing the
+  // logical page progress would make the pages jump when the new target is on
+  // a different index range (or would not animate when progress already equals
+  // the new target).
+  private redirectProgress = new Animated.Value(0);
   private lastProgressValue: number;
   private currentIndex: number; // Logical current index (equivalent to useRef in hooks)
-  private animationInstance: ReturnType<typeof Animated.spring> | null = null;
+  private animationInstance: ReturnType<typeof Animated.parallel> | null = null;
   private panResponder: PanResponderInstance;
   private isUnmounted = false;
 
@@ -186,6 +191,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       isAnimating: false,
       departingIndex: null,
       transitionTarget: null,
+      transitionGeometry: null,
       layout: { width: 0, height: 0 },
     };
 
@@ -228,6 +234,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
         this.setState({
           isAnimating: true,
           swipingToIndex: null,
+          transitionGeometry: null,
         });
         this.props.onSwipeStart?.();
       },
@@ -302,6 +309,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
         isAnimating: false,
         swipingToIndex: null,
         transitionTarget: null,
+        transitionGeometry: null,
       });
       return;
     }
@@ -496,11 +504,6 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
 
       // --- Forced navigation logic (e.g. button press) ---
 
-      if (this.animationInstance) {
-        this.animationInstance.stop();
-        this.animationInstance = null;
-      }
-
       // [Important] Update ref (this.currentIndex) on external change
       this.currentIndex = nextIndex;
 
@@ -554,20 +557,16 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     });
   };
 
-  // Prepare the fixed-slot geometry before activating a native Screen. This is
-  // important for react-native-screens: attaching the destination first and
-  // correcting its position in a later commit can expose a stale screen for a
-  // frame. The destination mount, participant activity states, and slot
-  // positions are therefore committed together before the spring.
-  startProgrammaticTransition = (fromIndex: number, targetIndex: number) => {
-    if (this.props.animationType === 'none') {
-      this.ensureMounted(targetIndex);
-      this.ensureMounted(fromIndex);
+  commitProgrammaticTransition = (
+    fromIndex: number,
+    targetIndex: number,
+    transitionGeometry: FastPagerState['transitionGeometry']
+  ) => {
+    if (transitionGeometry === null) {
       this.getProgress().setValue(fromIndex);
-      this.animateToIndex(targetIndex, true, fromIndex);
-      return;
+    } else {
+      this.redirectProgress.setValue(0);
     }
-
     this.setState(
       (prevState) => {
         const mountedIndices = new Set(prevState.mountedIndices);
@@ -575,17 +574,164 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
         mountedIndices.add(targetIndex);
 
         return {
+          activeIndex: fromIndex,
           mountedIndices,
           transitionTarget: targetIndex,
           swipingToIndex: null,
           departingIndex: fromIndex,
           isAnimating: true,
+          transitionGeometry,
         };
       },
       () => {
         this.runAnimation(targetIndex, undefined, fromIndex);
       }
     );
+  };
+
+  selectRedirectSource = (
+    progress: number,
+    redirectFraction: number,
+    targetIndex: number,
+    candidates: number[]
+  ): { sourceIndex: number; sourcePosition: number } => {
+    const childCount = this.props.children.length;
+    const validCandidates = Array.from(new Set(candidates)).filter(
+      (index) => index >= 0 && index < childCount && index !== targetIndex
+    );
+    const rankedCandidates = validCandidates
+      .map((sourceIndex) => {
+        const currentPosition = this.getNumericItemPosition(
+          sourceIndex,
+          progress,
+          redirectFraction
+        );
+        const movingRight = targetIndex > sourceIndex;
+        // The source must cover the half of the viewport opposite the new
+        // destination. Preserve its exact on-screen position when possible;
+        // spring overshoot is clamped only far enough to prevent an empty gap.
+        const minPosition = movingRight ? 0 : 1;
+        const maxPosition = movingRight ? 1 : 2;
+        const sourcePosition = Math.max(
+          minPosition,
+          Math.min(maxPosition, currentPosition)
+        );
+
+        return {
+          sourceIndex,
+          sourcePosition,
+          correction: Math.abs(currentPosition - sourcePosition),
+          distanceFromViewport: Math.abs(currentPosition - 1),
+        };
+      })
+      .sort(
+        (a, b) =>
+          a.correction - b.correction ||
+          a.distanceFromViewport - b.distanceFromViewport
+      );
+
+    const selected = rankedCandidates[0];
+    if (selected) return selected;
+
+    return {
+      sourceIndex: this.state.activeIndex,
+      sourcePosition: 1,
+    };
+  };
+
+  getNumericItemPosition = (
+    itemIndex: number,
+    progress: number,
+    redirectFraction: number
+  ): number => {
+    const { activeIndex, transitionGeometry } = this.state;
+    const interactionTarget = this.getInteractionTarget();
+
+    if (interactionTarget === null) {
+      if (itemIndex === activeIndex) return 1;
+      return itemIndex < activeIndex ? 0 : 2;
+    }
+
+    const direction = interactionTarget > activeIndex ? 1 : -1;
+    if (transitionGeometry !== null) {
+      const sourcePosition = transitionGeometry.sourcePosition;
+      const targetPosition = sourcePosition + direction;
+
+      if (itemIndex === activeIndex) {
+        const parkedPosition = direction > 0 ? 0 : 2;
+        return (
+          sourcePosition + (parkedPosition - sourcePosition) * redirectFraction
+        );
+      }
+      if (itemIndex === interactionTarget) {
+        return targetPosition + (1 - targetPosition) * redirectFraction;
+      }
+      return itemIndex < activeIndex ? 0 : 2;
+    }
+
+    const normalizedProgress =
+      (progress - activeIndex) / (interactionTarget - activeIndex);
+    if (itemIndex === activeIndex) {
+      return 1 - direction * normalizedProgress;
+    }
+    if (itemIndex === interactionTarget) {
+      return 1 + direction - direction * normalizedProgress;
+    }
+    return itemIndex < activeIndex ? 0 : 2;
+  };
+
+  // Prepare the fixed-slot geometry before activating a native Screen. This is
+  // important for react-native-screens: attaching the destination first and
+  // correcting its position in a later commit can expose a stale screen for a
+  // frame. The destination mount, participant activity states, and slot
+  // positions are therefore committed together before the spring.
+  startProgrammaticTransition = (fromIndex: number, targetIndex: number) => {
+    if (this.props.animationType === 'none') {
+      if (this.animationInstance) {
+        this.animationInstance.stop();
+        this.animationInstance = null;
+      }
+      this.ensureMounted(targetIndex);
+      this.ensureMounted(fromIndex);
+      this.getProgress().setValue(fromIndex);
+      this.animateToIndex(targetIndex, true, fromIndex);
+      return;
+    }
+
+    const interactionTarget = this.getInteractionTarget();
+    if (this.state.isAnimating && interactionTarget !== null) {
+      // Stop at the actual native-driver values, then replace the old pair with
+      // a new source/destination pair at the same two visual positions.
+      const candidates = [this.state.activeIndex, interactionTarget, fromIndex];
+      if (this.animationInstance) {
+        this.animationInstance.stop();
+        this.animationInstance = null;
+      }
+      this.getProgress().stopAnimation((currentProgress) => {
+        if (this.isUnmounted || this.currentIndex !== targetIndex) return;
+        const commitRedirect = (redirectFraction: number) => {
+          if (this.isUnmounted || this.currentIndex !== targetIndex) return;
+          const { sourceIndex, sourcePosition } = this.selectRedirectSource(
+            currentProgress,
+            redirectFraction,
+            targetIndex,
+            candidates
+          );
+          this.commitProgrammaticTransition(sourceIndex, targetIndex, {
+            sourcePosition,
+          });
+        };
+
+        if (this.state.transitionGeometry !== null) {
+          this.redirectProgress.stopAnimation(commitRedirect);
+        } else {
+          commitRedirect(0);
+        }
+      });
+      return;
+    }
+
+    this.commitProgrammaticTransition(fromIndex, targetIndex, null);
   };
 
   // --- Animation Logic ---
@@ -605,13 +751,25 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       this.setState({ departingIndex: departing });
     }
 
-    const anim = Animated.spring(this.getProgress(), {
+    const springConfig = {
       toValue: targetIndex,
       useNativeDriver: true,
       tension: 100,
       friction: 12,
       velocity: velocity,
-    });
+    } as const;
+    const progressAnimation = Animated.spring(this.getProgress(), springConfig);
+    const anim =
+      this.state.transitionGeometry === null
+        ? progressAnimation
+        : Animated.parallel([
+            progressAnimation,
+            Animated.spring(this.redirectProgress, {
+              ...springConfig,
+              toValue: 1,
+              velocity: undefined,
+            }),
+          ]);
 
     this.animationInstance = anim;
 
@@ -627,6 +785,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
             departingIndex: null,
             activeIndex: targetIndex,
             isAnimating: false,
+            transitionGeometry: null,
           },
           () => {
             this.pruneMountedIndices(targetIndex);
@@ -647,6 +806,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
         transitionTarget: targetIndex,
         swipingToIndex: null,
         isAnimating: true,
+        transitionGeometry: null,
       },
       () => {
         if (!animated || this.props.animationType === 'none') {
@@ -680,7 +840,6 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       return;
     }
     if (targetIndex !== this.currentIndex) {
-      if (this.animationInstance) this.animationInstance.stop();
       const prevIndex = this.currentIndex;
       this.currentIndex = targetIndex;
 
@@ -714,7 +873,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
   getItemPosition = (
     itemIndex: number
   ): number | Animated.AnimatedInterpolation<number> => {
-    const { activeIndex } = this.state;
+    const { activeIndex, transitionGeometry } = this.state;
     const interactionTarget = this.getInteractionTarget();
 
     if (interactionTarget === null) {
@@ -723,6 +882,29 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     }
 
     const direction = interactionTarget > activeIndex ? 1 : -1;
+    if (transitionGeometry !== null) {
+      const sourcePosition = transitionGeometry.sourcePosition;
+      const targetPosition = sourcePosition + direction;
+
+      if (itemIndex === activeIndex) {
+        const parkedPosition = direction > 0 ? 0 : 2;
+        return Animated.add(
+          sourcePosition,
+          Animated.multiply(
+            parkedPosition - sourcePosition,
+            this.redirectProgress
+          )
+        );
+      }
+      if (itemIndex === interactionTarget) {
+        return Animated.add(
+          targetPosition,
+          Animated.multiply(1 - targetPosition, this.redirectProgress)
+        );
+      }
+      return itemIndex < activeIndex ? 0 : 2;
+    }
+
     const distance = interactionTarget - activeIndex;
     const normalizedProgress = Animated.divide(
       Animated.subtract(this.getProgress(), activeIndex),

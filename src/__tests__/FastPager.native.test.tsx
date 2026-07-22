@@ -197,6 +197,31 @@ describe('FastPager native screen transitions', () => {
     });
   };
 
+  const setLatestRedirectProgress = (
+    logicalProgress: number,
+    visualProgress: number
+  ) => {
+    const logicalSpring = springs.at(-2);
+    const visualSpring = springs.at(-1);
+    expect(logicalSpring).toBeDefined();
+    expect(visualSpring).toBeDefined();
+    act(() => {
+      logicalSpring!.setProgress(logicalProgress);
+      visualSpring!.setProgress(visualProgress);
+    });
+  };
+
+  const finishLatestRedirect = () => {
+    const logicalSpring = springs.at(-2);
+    const visualSpring = springs.at(-1);
+    expect(logicalSpring).toBeDefined();
+    expect(visualSpring).toBeDefined();
+    act(() => {
+      logicalSpring!.finish();
+      visualSpring!.finish();
+    });
+  };
+
   it('parks every page in slot 0, 1, or 2 on the first render', () => {
     expectPage(renderer, 0, ActivityState.FULL_ACTIVE, 1);
     expectPage(renderer, 1, ActivityState.INACTIVE, 2);
@@ -302,6 +327,85 @@ describe('FastPager native screen transitions', () => {
     expectPage(renderer, 2, ActivityState.INACTIVE, 2);
     expectPage(renderer, 1, ActivityState.INACTIVE, 2);
     expectPage(renderer, 0, ActivityState.FULL_ACTIVE, 1);
+  });
+
+  it('rebases 1 -> 0 interrupted by -> 2 without an empty viewport', () => {
+    updateIndex(1);
+    finishLatestSpring();
+
+    updateIndex(0);
+    act(() => {
+      springs.at(-1)!.setProgress(0.5);
+    });
+    expectPage(renderer, 1, ActivityState.PARTIAL_ACTIVE, 1.5);
+    expectPage(renderer, 0, ActivityState.FULL_ACTIVE, 0.5);
+
+    updateIndex(2);
+    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.5);
+    expectPage(renderer, 1, ActivityState.INACTIVE, 2);
+    expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1.5);
+    expectLayoutOwner(renderer, 0, false);
+    expectLayoutOwner(renderer, 1, false);
+    expectLayoutOwner(renderer, 2, true);
+
+    setLatestRedirectProgress(1.25, 0.5);
+    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.25);
+    expectPage(renderer, 1, ActivityState.INACTIVE, 2);
+    expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1.25);
+
+    finishLatestRedirect();
+    expectPage(renderer, 0, ActivityState.INACTIVE, 0);
+    expectPage(renderer, 1, ActivityState.INACTIVE, 0);
+    expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1);
+  });
+
+  it('keeps rebasing when a redirected transition is interrupted again', () => {
+    updateIndex(1);
+    finishLatestSpring();
+
+    updateIndex(0);
+    act(() => {
+      springs.at(-1)!.setProgress(0.5);
+    });
+    updateIndex(2);
+    setLatestRedirectProgress(1.25, 0.5);
+
+    updateIndex(1);
+    expectPage(renderer, 0, ActivityState.INACTIVE, 0);
+    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 0.25);
+    expectPage(renderer, 2, ActivityState.PARTIAL_ACTIVE, 1.25);
+    expectLayoutOwner(renderer, 1, true);
+
+    setLatestRedirectProgress(1.125, 0.5);
+    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 0.625);
+    expectPage(renderer, 2, ActivityState.PARTIAL_ACTIVE, 1.625);
+
+    finishLatestRedirect();
+    expectPage(renderer, 0, ActivityState.INACTIVE, 0);
+    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 1);
+    expectPage(renderer, 2, ActivityState.INACTIVE, 2);
+  });
+
+  it('continues visually when logical progress already equals the new target', () => {
+    updateIndex(2);
+    act(() => {
+      springs.at(-1)!.setProgress(1);
+    });
+    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.5);
+    expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1.5);
+
+    updateIndex(1);
+    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.5);
+    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 1.5);
+
+    setLatestRedirectProgress(1, 0.5);
+    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.25);
+    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 1.25);
+
+    finishLatestRedirect();
+    expectPage(renderer, 0, ActivityState.INACTIVE, 0);
+    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 1);
+    expectPage(renderer, 2, ActivityState.INACTIVE, 2);
   });
 
   it('seats pages completely after repeated 0 <-> 1 transitions', () => {
