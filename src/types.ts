@@ -58,9 +58,6 @@ export interface FastPagerState {
   isAnimating: boolean;
   departingIndex: number | null;
   transitionTarget: number | null;
-  transitionGeometry: {
-    sourcePosition: number;
-  } | null;
   layout: { width: number; height: number };
 }
 

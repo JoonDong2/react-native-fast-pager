@@ -73,7 +73,9 @@ import FastPager from '../FastPager';
 
 type SpringController = {
   finish: () => void;
+  startProgress: number;
   setProgress: (value: number) => void;
+  targetProgress: number;
 };
 
 const children = [0, 1, 2].map((index) => (
@@ -149,9 +151,11 @@ describe('FastPager native screen transitions', () => {
       const animatedValue = value as Animated.Value;
 
       springs.push({
+        startProgress: (animatedValue as InspectableAnimatedValue).__getValue(),
         setProgress: (progress) => {
           animatedValue.setValue(progress);
         },
+        targetProgress: config.toValue as number,
         finish: () => {
           animatedValue.setValue(config.toValue as number);
           callback?.({ finished: true });
@@ -194,31 +198,6 @@ describe('FastPager native screen transitions', () => {
     expect(spring).toBeDefined();
     act(() => {
       spring!.finish();
-    });
-  };
-
-  const setLatestRedirectProgress = (
-    logicalProgress: number,
-    visualProgress: number
-  ) => {
-    const logicalSpring = springs.at(-2);
-    const visualSpring = springs.at(-1);
-    expect(logicalSpring).toBeDefined();
-    expect(visualSpring).toBeDefined();
-    act(() => {
-      logicalSpring!.setProgress(logicalProgress);
-      visualSpring!.setProgress(visualProgress);
-    });
-  };
-
-  const finishLatestRedirect = () => {
-    const logicalSpring = springs.at(-2);
-    const visualSpring = springs.at(-1);
-    expect(logicalSpring).toBeDefined();
-    expect(visualSpring).toBeDefined();
-    act(() => {
-      logicalSpring!.finish();
-      visualSpring!.finish();
     });
   };
 
@@ -329,7 +308,7 @@ describe('FastPager native screen transitions', () => {
     expectPage(renderer, 0, ActivityState.FULL_ACTIVE, 1);
   });
 
-  it('rebases 1 -> 0 interrupted by -> 2 without an empty viewport', () => {
+  it('retargets 1 -> 0 at progress 0.5 directly to progress 2', () => {
     updateIndex(1);
     finishLatestSpring();
 
@@ -341,19 +320,25 @@ describe('FastPager native screen transitions', () => {
     expectPage(renderer, 0, ActivityState.FULL_ACTIVE, 0.5);
 
     updateIndex(2);
-    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.5);
+    expect(springs.at(-1)).toMatchObject({
+      startProgress: 0.5,
+      targetProgress: 2,
+    });
+    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.75);
     expectPage(renderer, 1, ActivityState.INACTIVE, 2);
-    expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1.5);
+    expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1.75);
     expectLayoutOwner(renderer, 0, false);
     expectLayoutOwner(renderer, 1, false);
     expectLayoutOwner(renderer, 2, true);
 
-    setLatestRedirectProgress(1.25, 0.5);
-    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.25);
+    act(() => {
+      springs.at(-1)!.setProgress(1);
+    });
+    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.5);
     expectPage(renderer, 1, ActivityState.INACTIVE, 2);
-    expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1.25);
+    expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1.5);
 
-    finishLatestRedirect();
+    finishLatestSpring();
     expectPage(renderer, 0, ActivityState.INACTIVE, 0);
     expectPage(renderer, 1, ActivityState.INACTIVE, 0);
     expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1);
@@ -368,25 +353,33 @@ describe('FastPager native screen transitions', () => {
       springs.at(-1)!.setProgress(0.5);
     });
     updateIndex(2);
-    setLatestRedirectProgress(1.25, 0.5);
+    act(() => {
+      springs.at(-1)!.setProgress(1.5);
+    });
 
     updateIndex(1);
+    expect(springs.at(-1)).toMatchObject({
+      startProgress: 1.5,
+      targetProgress: 1,
+    });
     expectPage(renderer, 0, ActivityState.INACTIVE, 0);
-    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 0.25);
-    expectPage(renderer, 2, ActivityState.PARTIAL_ACTIVE, 1.25);
+    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 0.5);
+    expectPage(renderer, 2, ActivityState.PARTIAL_ACTIVE, 1.5);
     expectLayoutOwner(renderer, 1, true);
 
-    setLatestRedirectProgress(1.125, 0.5);
-    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 0.625);
-    expectPage(renderer, 2, ActivityState.PARTIAL_ACTIVE, 1.625);
+    act(() => {
+      springs.at(-1)!.setProgress(1.25);
+    });
+    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 0.75);
+    expectPage(renderer, 2, ActivityState.PARTIAL_ACTIVE, 1.75);
 
-    finishLatestRedirect();
+    finishLatestSpring();
     expectPage(renderer, 0, ActivityState.INACTIVE, 0);
     expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 1);
     expectPage(renderer, 2, ActivityState.INACTIVE, 2);
   });
 
-  it('continues visually when logical progress already equals the new target', () => {
+  it('seats the new target when current progress already equals it', () => {
     updateIndex(2);
     act(() => {
       springs.at(-1)!.setProgress(1);
@@ -395,14 +388,10 @@ describe('FastPager native screen transitions', () => {
     expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1.5);
 
     updateIndex(1);
-    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.5);
-    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 1.5);
+    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0);
+    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 1);
 
-    setLatestRedirectProgress(1, 0.5);
-    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.25);
-    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 1.25);
-
-    finishLatestRedirect();
+    finishLatestSpring();
     expectPage(renderer, 0, ActivityState.INACTIVE, 0);
     expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 1);
     expectPage(renderer, 2, ActivityState.INACTIVE, 2);
