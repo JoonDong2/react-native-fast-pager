@@ -16,7 +16,7 @@ export const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    flex: 1,
+    flexGrow: 1,
     alignSelf: 'stretch',
   },
 });

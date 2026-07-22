@@ -164,13 +164,15 @@ describe('PagerItem native rendering', () => {
     expect(readPositionStyle(source)).toBeUndefined();
     expect(readPositionStyle(target)).toBe('absolute');
     expect(readOwnStyle(getContentContainer(source))).toMatchObject({
-      flex: 1,
+      flexGrow: 1,
       alignSelf: 'stretch',
     });
     expect(readOwnStyle(getContentContainer(target))).toMatchObject({
-      flex: 1,
+      flexGrow: 1,
       alignSelf: 'stretch',
     });
+    expect(readOwnStyle(getContentContainer(source))?.flex).toBeUndefined();
+    expect(readOwnStyle(getContentContainer(target))?.flex).toBeUndefined();
     expect(readOwnStyle(getContentContainer(target))?.position).toBeUndefined();
     expect(readTranslation(source, 'translateX')).toBe(0);
     expect(readTranslation(target, 'translateX')).toBe(100);
