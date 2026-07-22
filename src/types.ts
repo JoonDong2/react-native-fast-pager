@@ -69,6 +69,7 @@ export interface PagerItemProps {
   vertical?: boolean;
   isActive: boolean;
   offset: Animated.Value;
+  transitionDistance: number;
   animationType: AnimationType;
   activityState: ActivityState;
   priority: number;

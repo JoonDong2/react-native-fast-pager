@@ -499,49 +499,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       // [Important] Update ref (this.currentIndex) on external change
       this.currentIndex = nextIndex;
 
-      // Mount handling
-      this.ensureMounted(nextIndex); // 1. Mount the destination screen
-      this.ensureMounted(prevIndex); // 2. Keep the departing screen mounted
-
-      // [Adjacent correction logic]
-      // When index difference > 1 (e.g. 0 -> 3),
-      // skip intermediate steps and animate as if transitioning from the adjacent screen
-      const diff = nextIndex - prevIndex;
-
-      if (Math.abs(diff) > 1) {
-        // Calculate movement direction
-        const direction = diff > 0 ? 1 : -1;
-
-        // Virtual start index for the animation
-        // e.g. if target is 3 and direction is +1, pretend we start from 2
-        const virtualStartIndex = nextIndex - direction;
-
-        this.resetAllOffsets();
-
-        // 1. Adjust departing screen (prevIndex)
-        // Position the departing screen at the visual center (0) relative to virtualStartIndex
-        // Formula: (prevIndex + offset) - virtualStartIndex = 0
-        const departingOffset = virtualStartIndex - prevIndex;
-        this.getItemOffset(prevIndex).setValue(departingOffset);
-
-        // 2. Adjust entering screen (nextIndex)
-        // The entering screen uses its natural position, so offset is 0
-        // Formula: (nextIndex + 0) - virtualStartIndex = direction (1 or -1)
-        // This holds since nextIndex - (nextIndex - direction) = direction, no extra offset needed
-        this.getItemOffset(nextIndex).setValue(0);
-
-        // 3. Force-set the animated value
-        this.getProgress().setValue(virtualStartIndex);
-
-        // 4. Run animation (virtualStartIndex -> nextIndex)
-        // Visually appears as a single-step transition
-        this.animateToIndex(nextIndex, true, prevIndex);
-      } else {
-        // Standard adjacent transition (e.g. 0 -> 1)
-        this.resetAllOffsets();
-        this.getProgress().setValue(prevIndex);
-        this.animateToIndex(nextIndex, true, prevIndex);
-      }
+      this.startProgrammaticTransition(prevIndex, nextIndex);
     }
 
     // [Cleanup Effect]
@@ -630,6 +588,43 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     Object.values(this.itemOffsets).forEach((offset) => offset.setValue(0));
   };
 
+  // Prepare the animated geometry before activating a native Screen. This is
+  // important for react-native-screens: attaching the destination first and
+  // correcting its position in a later commit can expose a stale screen for a
+  // frame. The destination mount, participant activity states, and normalized
+  // transition distance are therefore committed together before the spring.
+  startProgrammaticTransition = (fromIndex: number, targetIndex: number) => {
+    if (this.props.animationType === 'none') {
+      this.ensureMounted(targetIndex);
+      this.ensureMounted(fromIndex);
+      this.resetAllOffsets();
+      this.getProgress().setValue(fromIndex);
+      this.animateToIndex(targetIndex, true, fromIndex);
+      return;
+    }
+
+    this.resetAllOffsets();
+
+    this.setState(
+      (prevState) => {
+        const mountedIndices = new Set(prevState.mountedIndices);
+        mountedIndices.add(fromIndex);
+        mountedIndices.add(targetIndex);
+
+        return {
+          mountedIndices,
+          transitionTarget: targetIndex,
+          swipingToIndex: null,
+          departingIndex: fromIndex,
+          isAnimating: true,
+        };
+      },
+      () => {
+        this.runAnimation(targetIndex, undefined, fromIndex);
+      }
+    );
+  };
+
   // --- Animation Logic ---
   runAnimation = (
     targetIndex: number,
@@ -643,7 +638,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     // Record the departing index (use fromIndex if provided, otherwise activeIndex)
     const departing =
       fromIndex !== undefined ? fromIndex : this.state.activeIndex;
-    if (departing !== targetIndex) {
+    if (departing !== targetIndex && this.state.departingIndex !== departing) {
       this.setState({ departingIndex: departing });
     }
 
@@ -719,14 +714,13 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       const prevIndex = this.currentIndex;
       this.currentIndex = targetIndex;
 
-      this.ensureMounted(targetIndex); // Mount destination
-      this.ensureMounted(prevIndex); // Keep departing screen mounted
-
-      // Note: goTo should ideally share the jump offset logic with componentDidUpdate
-      // for non-adjacent transitions, but since goTo is typically used as an internal method,
-      // we call animateToIndex directly here.
-      // For full jump handling, prefer changing the index prop externally.
-      this.animateToIndex(targetIndex, animated, prevIndex);
+      if (animated) {
+        this.startProgrammaticTransition(prevIndex, targetIndex);
+      } else {
+        this.ensureMounted(targetIndex);
+        this.ensureMounted(prevIndex);
+        this.animateToIndex(targetIndex, false, prevIndex);
+      }
       this.props.onIndexChange?.(targetIndex);
     }
   };
@@ -766,21 +760,17 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
   getRenderIndices = () => {
     const { mountedIndices, transitionTarget, swipingToIndex, activeIndex } =
       this.state;
-    const { index, children } = this.props;
+    const { children } = this.props;
     const childCount = children.length;
 
     // 1. All currently mounted indices (added via ensureMounted)
     const combinedIndices = new Set(mountedIndices);
 
-    // 2. [Required] Current props index (ensures external control responsiveness)
-    if (index !== undefined) combinedIndices.add(index);
-    // 3. [Required] Current physical position (replaces currentIndexRef) - ensures animation start point
-    combinedIndices.add(this.currentIndex);
-    // 4. [Required] Animation target
+    // 2. [Required] Animation target
     if (transitionTarget !== null) combinedIndices.add(transitionTarget);
-    // 5. [Required] Swipe preview target
+    // 3. [Required] Swipe preview target
     if (swipingToIndex !== null) combinedIndices.add(swipingToIndex);
-    // 6. [Required] Currently active screen (ensures departing screen afterimage)
+    // 4. [Required] Currently active screen (ensures departing screen afterimage)
     combinedIndices.add(activeIndex);
 
     // Validate and sort
@@ -819,6 +809,13 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     const { mountedIndices, activeIndex } = this.state;
     const containerSize = this.getCurrentContainerSize();
     const renderIndices = this.getRenderIndices();
+    const transitionDistance =
+      this.state.transitionTarget === null
+        ? 1
+        : Math.max(
+            1,
+            Math.abs(this.state.transitionTarget - this.state.activeIndex)
+          );
 
     // Compute mount order: convert mountedIndices (Set) to array
     // Since ensureMounted appends via 'delete -> add', later entries are newest
@@ -874,6 +871,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
                 vertical={vertical}
                 isActive={i === activeIndex}
                 offset={this.getItemOffset(i)}
+                transitionDistance={transitionDistance}
                 animationType={animationType || 'slide'}
                 priority={priority}
                 useNativeScreens={useNativeScreens}
