@@ -16,10 +16,7 @@ import { ActivityState, type PagerItemProps } from '../types';
 type PageRender = {
   activityState: number;
   itemIndex: number;
-  offset: number;
   position: number;
-  progress: number;
-  transitionDistance: number;
   useNativeScreens: boolean;
 };
 
@@ -29,8 +26,12 @@ type InspectableAnimatedValue = Animated.Value & {
   __getValue: () => number;
 };
 
-const mockGetAnimatedValue = (value: Animated.Value) =>
-  (value as InspectableAnimatedValue).__getValue();
+const mockGetPosition = (
+  value: number | Animated.AnimatedInterpolation<number>
+) =>
+  typeof value === 'number'
+    ? value
+    : (value as InspectableAnimatedValue).__getValue();
 
 jest.mock('react-native-screens', () => {
   const ReactModule = require('react');
@@ -46,30 +47,21 @@ jest.mock('../PagerItem', () => {
 
   return {
     PagerItem: (props: PagerItemProps) => {
-      const progress = mockGetAnimatedValue(props.progress);
-      const offset = mockGetAnimatedValue(props.offset);
-      // Keep the harness runnable against the pre-fix implementation, which
-      // did not yet pass an explicit normalized transition distance.
-      const transitionDistance = props.transitionDistance ?? 1;
-      const position =
-        (props.itemIndex + offset - progress) / transitionDistance;
+      const child = props.children as React.ReactElement<{ testID: string }>;
+      const itemIndex = Number(child.props.testID.replace('page-', ''));
+      const position = mockGetPosition(props.position);
 
       mockPageRenders.push({
         activityState: props.activityState,
-        itemIndex: props.itemIndex,
-        offset,
+        itemIndex,
         position,
-        progress,
-        transitionDistance,
         useNativeScreens: props.useNativeScreens === true,
       });
 
       return ReactModule.createElement('PagerItem', {
         activityState: props.activityState,
-        itemIndex: props.itemIndex,
-        offset: props.offset,
-        progress: props.progress,
-        transitionDistance,
+        itemIndex,
+        position: props.position,
         useNativeScreens: props.useNativeScreens,
       });
     },
@@ -98,17 +90,13 @@ const readPages = (renderer: ReactTestRenderer) =>
     .findAll((node) => String(node.type) === 'PagerItem')
     .map((item) => {
       const itemIndex = item.props.itemIndex as number;
-      const progress = mockGetAnimatedValue(
-        item.props.progress as Animated.Value
-      );
-      const offset = mockGetAnimatedValue(item.props.offset as Animated.Value);
-      const transitionDistance =
-        (item.props.transitionDistance as number | undefined) ?? 1;
 
       return {
         activityState: item.props.activityState as number,
         itemIndex,
-        position: (itemIndex + offset - progress) / transitionDistance,
+        position: mockGetPosition(
+          item.props.position as number | Animated.AnimatedInterpolation<number>
+        ),
         useNativeScreens: item.props.useNativeScreens as boolean,
       };
     });
@@ -196,129 +184,160 @@ describe('FastPager native screen transitions', () => {
     });
   };
 
-  it('keeps pages at valid positions for 0 -> 1', () => {
-    const renders = updateIndex(1);
+  it('parks every page in slot 0, 1, or 2 on the first render', () => {
+    expectPage(renderer, 0, ActivityState.FULL_ACTIVE, 1);
+    expectPage(renderer, 1, ActivityState.INACTIVE, 2);
+    expectPage(renderer, 2, ActivityState.INACTIVE, 2);
+  });
 
-    expect(renders.find((page) => page.itemIndex === 1)).toMatchObject({
-      activityState: 1,
-      position: 1,
-      useNativeScreens: true,
-    });
-    expectPage(renderer, 0, 2, 0);
-    expectPage(renderer, 1, 1, 1);
+  it('keeps pages at fixed-slot positions for 0 -> 1', () => {
+    const renders = updateIndex(1);
+    const attachedTargets = renders.filter(
+      (page) =>
+        page.itemIndex === 1 && page.activityState === ActivityState.FULL_ACTIVE
+    );
+
+    expect(attachedTargets.length).toBeGreaterThan(0);
+    expect(attachedTargets.every((page) => page.position === 2)).toBe(true);
+    expect(
+      renders
+        .filter((page) => page.itemIndex === 0)
+        .every((page) => page.position === 1)
+    ).toBe(true);
+    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 1);
+    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 2);
+    expectPage(renderer, 2, ActivityState.INACTIVE, 2);
 
     act(() => {
       springs[0]!.setProgress(0.5);
     });
-    expectPage(renderer, 0, 2, -0.5);
-    expectPage(renderer, 1, 1, 0.5);
+    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.5);
+    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 1.5);
+    expectPage(renderer, 2, ActivityState.INACTIVE, 2);
 
     finishLatestSpring();
-    expectPage(renderer, 0, 0, -1);
-    expectPage(renderer, 1, 2, 0);
+    expectPage(renderer, 0, ActivityState.INACTIVE, 0);
+    expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 1);
+    expectPage(renderer, 2, ActivityState.INACTIVE, 2);
   });
 
-  it('moves 0 -> 2 as one step without attaching an incorrectly positioned page', () => {
+  it('moves 0 -> 2 directly while page 1 stays detached in slot 2', () => {
     const renders = updateIndex(2);
-    const firstTargetRender = renders.find((page) => page.itemIndex === 2);
+    const attachedTargets = renders.filter(
+      (page) =>
+        page.itemIndex === 2 && page.activityState === ActivityState.FULL_ACTIVE
+    );
 
-    expect(firstTargetRender).toMatchObject({
-      activityState: 1,
-      position: 1,
-      progress: 0,
-      transitionDistance: 2,
-      useNativeScreens: true,
-    });
+    expect(attachedTargets.length).toBeGreaterThan(0);
+    expect(attachedTargets.every((page) => page.position === 2)).toBe(true);
     expect(
       renders
         .filter((page) => page.itemIndex === 0)
-        .every((page) => page.position === 0)
+        .every((page) => page.position === 1)
     ).toBe(true);
-    expect(renders).not.toContainEqual(
-      expect.objectContaining({ itemIndex: 2, activityState: 0 })
-    );
-    expectPage(renderer, 0, 2, 0);
-    expectPage(renderer, 2, 1, 1);
+    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 1);
+    expectPage(renderer, 1, ActivityState.INACTIVE, 2);
+    expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 2);
 
     act(() => {
       springs[0]!.setProgress(1);
     });
-    expectPage(renderer, 0, 2, -0.5);
-    expectPage(renderer, 2, 1, 0.5);
+    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.5);
+    expectPage(renderer, 1, ActivityState.INACTIVE, 2);
+    expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1.5);
 
     finishLatestSpring();
-    expectPage(renderer, 0, 0, -2);
-    expectPage(renderer, 2, 2, 0);
+    expectPage(renderer, 0, ActivityState.INACTIVE, 0);
+    expectPage(renderer, 1, ActivityState.INACTIVE, 0);
+    expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1);
   });
 
-  it('keeps reverse 2 -> 0 transitions symmetric after both pages were mounted', () => {
+  it('keeps reverse 2 -> 0 transitions symmetric', () => {
     updateIndex(2);
     finishLatestSpring();
 
     const renders = updateIndex(0);
-    const attachedTarget = renders.find(
+    const attachedTargets = renders.filter(
       (page) =>
-        page.itemIndex === 0 &&
-        page.activityState === ActivityState.PARTIAL_ACTIVE
+        page.itemIndex === 0 && page.activityState === ActivityState.FULL_ACTIVE
     );
 
-    expect(attachedTarget).toMatchObject({
-      position: -1,
-      progress: 2,
-      transitionDistance: 2,
-      useNativeScreens: true,
-    });
-    expect(
-      renders
-        .filter((page) => page.itemIndex === 2)
-        .every((page) => page.position === 0)
-    ).toBe(true);
-    expectPage(renderer, 2, 2, 0);
-    expectPage(renderer, 0, 1, -1);
+    expect(attachedTargets.length).toBeGreaterThan(0);
+    expect(attachedTargets.every((page) => page.position === 0)).toBe(true);
+    expectPage(renderer, 2, ActivityState.PARTIAL_ACTIVE, 1);
+    expectPage(renderer, 1, ActivityState.INACTIVE, 0);
+    expectPage(renderer, 0, ActivityState.FULL_ACTIVE, 0);
 
     act(() => {
       springs.at(-1)!.setProgress(1);
     });
-    expectPage(renderer, 2, 2, 0.5);
-    expectPage(renderer, 0, 1, -0.5);
+    expectPage(renderer, 2, ActivityState.PARTIAL_ACTIVE, 1.5);
+    expectPage(renderer, 1, ActivityState.INACTIVE, 0);
+    expectPage(renderer, 0, ActivityState.FULL_ACTIVE, 0.5);
 
     finishLatestSpring();
-    expectPage(renderer, 2, 0, 2);
-    expectPage(renderer, 0, 2, 0);
+    expectPage(renderer, 2, ActivityState.INACTIVE, 2);
+    expectPage(renderer, 1, ActivityState.INACTIVE, 2);
+    expectPage(renderer, 0, ActivityState.FULL_ACTIVE, 1);
   });
 
-  it('keeps page 1 detached during 0 -> 1 -> 0 -> 2', () => {
+  it('seats pages completely after repeated 0 <-> 1 transitions', () => {
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      updateIndex(1);
+      act(() => {
+        springs.at(-1)!.setProgress(0.5);
+      });
+      expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.5);
+      expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 1.5);
+      finishLatestSpring();
+      expectPage(renderer, 0, ActivityState.INACTIVE, 0);
+      expectPage(renderer, 1, ActivityState.FULL_ACTIVE, 1);
+
+      updateIndex(0);
+      act(() => {
+        springs.at(-1)!.setProgress(0.5);
+      });
+      expectPage(renderer, 1, ActivityState.PARTIAL_ACTIVE, 1.5);
+      expectPage(renderer, 0, ActivityState.FULL_ACTIVE, 0.5);
+      finishLatestSpring();
+      expectPage(renderer, 1, ActivityState.INACTIVE, 2);
+      expectPage(renderer, 0, ActivityState.FULL_ACTIVE, 1);
+    }
+  });
+
+  it('keeps page 1 detached in slot 2 during 0 -> 1 -> 0 -> 2', () => {
     updateIndex(1);
     finishLatestSpring();
     updateIndex(0);
     finishLatestSpring();
 
+    expectPage(renderer, 0, ActivityState.FULL_ACTIVE, 1);
+    expectPage(renderer, 1, ActivityState.INACTIVE, 2);
+
     const renders = updateIndex(2);
     const pageOneRenders = renders.filter((page) => page.itemIndex === 1);
 
     expect(pageOneRenders.length).toBeGreaterThan(0);
-    expect(pageOneRenders.every((page) => page.activityState === 0)).toBe(true);
-    expect(renders.find((page) => page.itemIndex === 2)).toMatchObject({
-      activityState: 1,
-      position: 1,
-      progress: 0,
-      transitionDistance: 2,
-      useNativeScreens: true,
-    });
-    expectPage(renderer, 0, 2, 0);
-    expectPage(renderer, 1, 0, 0.5);
-    expectPage(renderer, 2, 1, 1);
+    expect(
+      pageOneRenders.every(
+        (page) =>
+          page.activityState === ActivityState.INACTIVE && page.position === 2
+      )
+    ).toBe(true);
+    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 1);
+    expectPage(renderer, 1, ActivityState.INACTIVE, 2);
+    expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 2);
 
     act(() => {
       springs.at(-1)!.setProgress(1);
     });
-    expectPage(renderer, 0, 2, -0.5);
-    expectPage(renderer, 1, 0, 0);
-    expectPage(renderer, 2, 1, 0.5);
+    expectPage(renderer, 0, ActivityState.PARTIAL_ACTIVE, 0.5);
+    expectPage(renderer, 1, ActivityState.INACTIVE, 2);
+    expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1.5);
 
     finishLatestSpring();
-    expectPage(renderer, 0, 0, -2);
-    expectPage(renderer, 1, 0, -1);
-    expectPage(renderer, 2, 2, 0);
+    expectPage(renderer, 0, ActivityState.INACTIVE, 0);
+    expectPage(renderer, 1, ActivityState.INACTIVE, 0);
+    expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1);
   });
 });

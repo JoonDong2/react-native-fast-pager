@@ -292,6 +292,7 @@ export default function App() {
               index={tabIndex}
               onIndexChange={onIndexChange}
               onProgressChange={onProgressChange}
+              style={{ minHeight: contentMinHeight }}
             >
               <IngredientsScreen minHeight={contentMinHeight} />
               <StepsScreen minHeight={contentMinHeight} />

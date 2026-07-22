@@ -14,6 +14,7 @@ import {
   INITIAL_PRELOAD_THRESHOLD,
 } from './constants';
 import { styles } from './styles';
+import { ActivityState } from './types';
 import type {
   FastPagerProgressChangeEvent,
   FastPagerProps,
@@ -148,7 +149,6 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
   } | null = null;
   private lastProgressValue: number;
   private currentIndex: number; // Logical current index (equivalent to useRef in hooks)
-  private itemOffsets: Record<number, Animated.Value> = {};
   private animationInstance: ReturnType<typeof Animated.spring> | null = null;
   private panResponder: PanResponderInstance;
   private isUnmounted = false;
@@ -178,7 +178,10 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
 
     this.state = {
       activeIndex: initialIndex,
-      mountedIndices: new Set([initialIndex]),
+      mountedIndices:
+        props.keepAlive === undefined
+          ? new Set(props.children.map((_, index) => index))
+          : new Set([initialIndex]),
       swipingToIndex: null,
       isAnimating: false,
       departingIndex: null,
@@ -206,9 +209,6 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
           this.animationInstance.stop();
           this.animationInstance = null;
         }
-        // Reset offsets at gesture start
-        this.resetAllOffsets();
-
         const childCount = this.props.children.length;
         const currentIdx = this.currentIndex;
 
@@ -265,10 +265,15 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
             : INITIAL_PRELOAD_THRESHOLD;
 
           if (Math.abs(offset) > threshold) {
-            if (!hasBeenMounted) {
-              this.ensureMounted(targetIdx);
-            } else if (swipingToIndex !== targetIdx) {
-              this.setState({ swipingToIndex: targetIdx });
+            if (!hasBeenMounted || swipingToIndex !== targetIdx) {
+              this.setState((prevState) => {
+                const nextMountedIndices = new Set(prevState.mountedIndices);
+                nextMountedIndices.add(targetIdx);
+                return {
+                  mountedIndices: nextMountedIndices,
+                  swipingToIndex: targetIdx,
+                };
+              });
             }
           }
         }
@@ -501,29 +506,17 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
 
       this.startProgrammaticTransition(prevIndex, nextIndex);
     }
-
-    // [Cleanup Effect]
-    // Runs after animation ends and activeIndex is updated,
-    // deferring the departing screen's deactivation to the next render cycle.
-    if (!this.state.isAnimating && this.state.departingIndex !== null) {
-      this.setState({ departingIndex: null }, () => {
-        // Final cleanup after animation completion
-        this.pruneMountedIndices(this.state.activeIndex);
-        this.props.onSwipeEnd?.(this.state.activeIndex);
-      });
-    }
   }
 
   // --- 1. Mount Logic (Add Only) ---
   // This function only adds indices and never removes them.
   ensureMounted = (idx: number) => {
     this.setState((prevState) => {
-      // [Modified] During animation, preserve order by not re-inserting existing indices
-      // (skipping delete -> add reordering)
+      // During animation, preserve visit order by not re-inserting existing indices.
       if (prevState.mountedIndices.has(idx)) {
         return null; // No state change
       }
-      // Add to end of Set (newest = lowest priority)
+      // Add to the end so finite keepAlive eviction retains recent pages.
       const newSet = new Set(prevState.mountedIndices);
       newSet.add(idx);
       return { mountedIndices: newSet };
@@ -536,74 +529,44 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     const isInfiniteKeepAlive = this.props.keepAlive === undefined;
     const keepAliveLimit = this.props.keepAlive ?? Number.MAX_SAFE_INTEGER;
 
-    let nextKeptSet: Set<number> | null = null;
+    this.setState((prevState) => {
+      const newSet = new Set(prevState.mountedIndices);
 
-    this.setState(
-      (prevState) => {
-        const newSet = new Set(prevState.mountedIndices);
-
-        // Animation complete: move target to end of Set
-        // to mark it as the newest (lowest priority / active)
-        if (newSet.has(targetIndex)) {
-          newSet.delete(targetIndex);
-        }
-        newSet.add(targetIndex);
-
-        if (isInfiniteKeepAlive) return { mountedIndices: newSet };
-        if (newSet.size <= keepAliveLimit) return { mountedIndices: newSet };
-
-        // FIFO eviction: keep the newest entries (from the end)
-        const toKeep = Array.from(newSet).slice(newSet.size - keepAliveLimit);
-
-        // [Safety] Force-add targetIndex if missing
-        if (!toKeep.includes(targetIndex)) {
-          toKeep.push(targetIndex);
-        }
-
-        const keptSet = new Set(toKeep);
-        nextKeptSet = keptSet;
-        return { mountedIndices: keptSet };
-      },
-      () => {
-        // Side effects run after commit (safe under strict mode double-invocation)
-        if (!nextKeptSet) return;
-        Object.keys(this.itemOffsets).forEach((key) => {
-          const k = Number(key);
-          if (!nextKeptSet!.has(k)) {
-            delete this.itemOffsets[k];
-          }
-        });
+      // Animation complete: move target to end of Set so finite keepAlive
+      // eviction retains the most recently visited page.
+      if (newSet.has(targetIndex)) {
+        newSet.delete(targetIndex);
       }
-    );
+      newSet.add(targetIndex);
+
+      if (isInfiniteKeepAlive) return { mountedIndices: newSet };
+      if (newSet.size <= keepAliveLimit) return { mountedIndices: newSet };
+
+      // FIFO eviction: keep the newest entries (from the end)
+      const toKeep = Array.from(newSet).slice(newSet.size - keepAliveLimit);
+
+      // [Safety] Force-add targetIndex if missing
+      if (!toKeep.includes(targetIndex)) {
+        toKeep.push(targetIndex);
+      }
+
+      return { mountedIndices: new Set(toKeep) };
+    });
   };
 
-  getItemOffset = (idx: number) => {
-    if (!this.itemOffsets[idx]) {
-      this.itemOffsets[idx] = new Animated.Value(0);
-    }
-    return this.itemOffsets[idx];
-  };
-
-  resetAllOffsets = () => {
-    Object.values(this.itemOffsets).forEach((offset) => offset.setValue(0));
-  };
-
-  // Prepare the animated geometry before activating a native Screen. This is
+  // Prepare the fixed-slot geometry before activating a native Screen. This is
   // important for react-native-screens: attaching the destination first and
   // correcting its position in a later commit can expose a stale screen for a
-  // frame. The destination mount, participant activity states, and normalized
-  // transition distance are therefore committed together before the spring.
+  // frame. The destination mount, participant activity states, and slot
+  // positions are therefore committed together before the spring.
   startProgrammaticTransition = (fromIndex: number, targetIndex: number) => {
     if (this.props.animationType === 'none') {
       this.ensureMounted(targetIndex);
       this.ensureMounted(fromIndex);
-      this.resetAllOffsets();
       this.getProgress().setValue(fromIndex);
       this.animateToIndex(targetIndex, true, fromIndex);
       return;
     }
-
-    this.resetAllOffsets();
 
     this.setState(
       (prevState) => {
@@ -656,12 +619,20 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       // [Modification] Only clean up when finished is true
       // Ignore stale target if an external prop change occurred mid-animation
       if (finished && !this.isUnmounted && targetIndex === this.currentIndex) {
-        this.resetAllOffsets();
-        this.setState({
-          transitionTarget: null,
-          activeIndex: targetIndex,
-          isAnimating: false,
-        });
+        this.animationInstance = null;
+        this.setState(
+          {
+            transitionTarget: null,
+            swipingToIndex: null,
+            departingIndex: null,
+            activeIndex: targetIndex,
+            isAnimating: false,
+          },
+          () => {
+            this.pruneMountedIndices(targetIndex);
+            this.props.onSwipeEnd?.(targetIndex);
+          }
+        );
       }
     });
   };
@@ -679,7 +650,6 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       },
       () => {
         if (!animated || this.props.animationType === 'none') {
-          this.resetAllOffsets();
           this.getProgress().setValue(targetIndex);
           this.setState(
             {
@@ -725,43 +695,111 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     }
   };
 
-  getActivityState = (itemIndex: number): 0 | 1 | 2 => {
-    // Only activate indices that are explicitly participating in the current interaction (state 1 or 2)
-    const {
-      activeIndex,
-      transitionTarget,
-      swipingToIndex,
-      departingIndex,
-      isAnimating,
-    } = this.state;
+  getInteractionTarget = (): number | null => {
+    const { activeIndex, transitionTarget, swipingToIndex, departingIndex } =
+      this.state;
 
-    const isSource = itemIndex === activeIndex; // Currently displayed screen
-    const isTarget =
-      transitionTarget !== null && itemIndex === transitionTarget; // Transition target
-    const isSwiping = swipingToIndex !== null && itemIndex === swipingToIndex; // Gesture preview
-    const isDeparting = departingIndex !== null && itemIndex === departingIndex; // Departing afterimage
+    if (transitionTarget !== null && transitionTarget !== activeIndex) {
+      return transitionTarget;
+    }
+    if (swipingToIndex !== null && swipingToIndex !== activeIndex) {
+      return swipingToIndex;
+    }
+    if (departingIndex !== null && departingIndex !== activeIndex) {
+      return departingIndex;
+    }
+    return null;
+  };
 
-    // 1. When not animating/interacting
-    if (!isAnimating) {
-      if (isSource) return 2;
-      if (isDeparting) return 1; // Keep at 1 while departing (until cleanup in next render)
-      return 0;
+  getItemPosition = (
+    itemIndex: number
+  ): number | Animated.AnimatedInterpolation<number> => {
+    const { activeIndex } = this.state;
+    const interactionTarget = this.getInteractionTarget();
+
+    if (interactionTarget === null) {
+      if (itemIndex === activeIndex) return 1;
+      return itemIndex < activeIndex ? 0 : 2;
     }
 
-    // 2. During animation (participant-based logic)
-    if (isSource) return 2; // Source always stays fully active
-    if (isTarget || isSwiping || isDeparting) return 1; // Target and related screens are partially active
+    const direction = interactionTarget > activeIndex ? 1 : -1;
+    const distance = interactionTarget - activeIndex;
+    const normalizedProgress = Animated.divide(
+      Animated.subtract(this.getProgress(), activeIndex),
+      distance
+    );
 
-    // All others (including intermediate screens) are inactive
-    return 0;
+    if (itemIndex === activeIndex) {
+      // The source moves from the viewport (1) to its parked side (0 or 2).
+      return Animated.subtract(
+        1,
+        Animated.multiply(direction, normalizedProgress)
+      );
+    }
+    if (itemIndex === interactionTarget) {
+      // The destination starts at its parked side and moves into viewport 1.
+      return Animated.add(
+        1 + direction,
+        Animated.multiply(-direction, normalizedProgress)
+      );
+    }
+
+    // Non-participants remain detached at the source-relative parked side.
+    return itemIndex < activeIndex ? 0 : 2;
+  };
+
+  getActivityState = (itemIndex: number): 0 | 1 | 2 => {
+    const { activeIndex, transitionTarget, swipingToIndex, isAnimating } =
+      this.state;
+
+    if (!isAnimating) {
+      return itemIndex === activeIndex
+        ? ActivityState.FULL_ACTIVE
+        : ActivityState.INACTIVE;
+    }
+
+    const interactionTarget = this.getInteractionTarget();
+    if (interactionTarget === null) {
+      return itemIndex === activeIndex
+        ? ActivityState.FULL_ACTIVE
+        : ActivityState.INACTIVE;
+    }
+
+    const isMovingToAnotherPage =
+      (transitionTarget !== null && transitionTarget !== activeIndex) ||
+      (swipingToIndex !== null && swipingToIndex !== activeIndex);
+
+    if (isMovingToAnotherPage) {
+      if (itemIndex === interactionTarget) return ActivityState.FULL_ACTIVE;
+      if (itemIndex === activeIndex) return ActivityState.PARTIAL_ACTIVE;
+      return ActivityState.INACTIVE;
+    }
+
+    // An aborted gesture is returning to activeIndex: the current page is the
+    // destination, while the preview page remains attached only until it parks.
+    if (itemIndex === activeIndex) return ActivityState.FULL_ACTIVE;
+    if (itemIndex === interactionTarget) return ActivityState.PARTIAL_ACTIVE;
+    return ActivityState.INACTIVE;
   };
 
   // --- Render Indices Calculation ---
   getRenderIndices = () => {
-    const { mountedIndices, transitionTarget, swipingToIndex, activeIndex } =
-      this.state;
+    const {
+      mountedIndices,
+      transitionTarget,
+      swipingToIndex,
+      departingIndex,
+      activeIndex,
+    } = this.state;
     const { children } = this.props;
     const childCount = children.length;
+
+    // With unlimited keepAlive every native Screen wrapper stays mounted from
+    // the first render. INACTIVE screens are still detached by
+    // react-native-screens, but their parked slot is ready before reattachment.
+    if (this.props.keepAlive === undefined) {
+      return children.map((_, index) => index);
+    }
 
     // 1. All currently mounted indices (added via ensureMounted)
     const combinedIndices = new Set(mountedIndices);
@@ -770,7 +808,9 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     if (transitionTarget !== null) combinedIndices.add(transitionTarget);
     // 3. [Required] Swipe preview target
     if (swipingToIndex !== null) combinedIndices.add(swipingToIndex);
-    // 4. [Required] Currently active screen (ensures departing screen afterimage)
+    // 4. [Required] Aborted-swipe preview while it returns to its parked slot
+    if (departingIndex !== null) combinedIndices.add(departingIndex);
+    // 5. [Required] Currently active screen
     combinedIndices.add(activeIndex);
 
     // Validate and sort
@@ -806,21 +846,9 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       freeze = true,
     } = this.props;
 
-    const { mountedIndices, activeIndex } = this.state;
+    const { mountedIndices } = this.state;
     const containerSize = this.getCurrentContainerSize();
     const renderIndices = this.getRenderIndices();
-    const transitionDistance =
-      this.state.transitionTarget === null
-        ? 1
-        : Math.max(
-            1,
-            Math.abs(this.state.transitionTarget - this.state.activeIndex)
-          );
-
-    // Compute mount order: convert mountedIndices (Set) to array
-    // Since ensureMounted appends via 'delete -> add', later entries are newest
-    const mountedOrderArray = Array.from(mountedIndices);
-    const progress = this.getProgress();
 
     const useNativeScreens = mode === 'native';
     const Container = useNativeScreens ? ScreenContainer : View;
@@ -838,25 +866,11 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
         {renderIndices
           .filter((i) => children[i] != null)
           .map((i) => {
-            // Priority calculation logic
-            // mountedOrderArray: [oldest, ..., newest]
-            // Only show up to 2: the most recently activated child and the one before it get high zIndex
-            const orderIndex = mountedOrderArray.indexOf(i);
-            const len = mountedOrderArray.length;
-
-            let priority: number;
-            if (orderIndex === -1) {
-              priority = 0;
-            } else if (orderIndex === len - 1) {
-              priority = 2; // Most recently activated -> highest zIndex
-            } else if (orderIndex === len - 2) {
-              priority = 1; // Previously activated -> second zIndex
-            } else {
-              priority = 0; // All others -> lowest
-            }
+            const activityState = this.getActivityState(i);
 
             // Check if this child has never been mounted
-            const isUnmounted = !mountedIndices.has(i);
+            const isUnmounted =
+              this.props.keepAlive !== undefined && !mountedIndices.has(i);
             // If swipeEnabled and never mounted, disable freeze to allow initial render
             const itemFreeze =
               this.props.swipeEnabled !== false && isUnmounted ? false : freeze;
@@ -864,16 +878,12 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
             return (
               <PagerItem
                 key={i}
-                itemIndex={i}
-                progress={progress}
-                activityState={this.getActivityState(i)}
+                position={this.getItemPosition(i)}
+                activityState={activityState}
                 containerSize={containerSize}
                 vertical={vertical}
-                isActive={i === activeIndex}
-                offset={this.getItemOffset(i)}
-                transitionDistance={transitionDistance}
                 animationType={animationType || 'slide'}
-                priority={priority}
+                priority={activityState}
                 useNativeScreens={useNativeScreens}
                 freeze={itemFreeze}
               >

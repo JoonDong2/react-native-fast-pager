@@ -10,11 +10,7 @@ const AnimatedScreen = Animated.createAnimatedComponent(Screen);
 export const PagerItem = memo(
   ({
     children,
-    itemIndex,
-    progress,
-    isActive,
-    offset,
-    transitionDistance,
+    position,
     animationType,
     activityState,
     priority,
@@ -23,18 +19,7 @@ export const PagerItem = memo(
     useNativeScreens = true,
     freeze = true,
   }: PagerItemProps) => {
-    const effectiveIndex = useMemo(
-      () => Animated.add(itemIndex, offset),
-      [itemIndex, offset]
-    );
-    const diff = useMemo(
-      () =>
-        Animated.divide(
-          Animated.subtract(effectiveIndex, progress),
-          transitionDistance
-        ),
-      [effectiveIndex, progress, transitionDistance]
-    );
+    const diff = useMemo(() => Animated.subtract(position, 1), [position]);
 
     const animatedStyle = useMemo(() => {
       if (animationType === 'none') return {};
@@ -79,7 +64,7 @@ export const PagerItem = memo(
     };
 
     const commonStyle = [
-      !isActive && styles.inactiveItem,
+      styles.inactiveItem,
       animatedStyle,
       styles.itemContainer,
       containerStyle,

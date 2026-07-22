@@ -77,6 +77,20 @@ const readTranslation = (
   return resolvedValue!;
 };
 
+const readPositionStyle = (screen: ReactTestInstance) => {
+  let current: ReactTestInstance | null = screen;
+
+  while (current) {
+    const style = StyleSheet.flatten(current.props.style) as
+      | ViewStyle
+      | undefined;
+    if (style?.position) return style.position;
+    current = current.parent;
+  }
+
+  return undefined;
+};
+
 describe('PagerItem native rendering', () => {
   let renderer: ReactTestRenderer;
 
@@ -94,35 +108,33 @@ describe('PagerItem native rendering', () => {
     });
   });
 
-  it('uses the real Animated graph for a normalized 0 -> 2 transition', () => {
+  it('uses the real Animated graph for a fixed-slot 0 -> 2 transition', () => {
     const progress = new Animated.Value(0);
+    const normalizedProgress = Animated.divide(progress, 2);
+    const sourcePosition = Animated.subtract(1, normalizedProgress);
+    const targetPosition = Animated.add(
+      2,
+      Animated.multiply(-1, normalizedProgress)
+    );
 
     act(() => {
       renderer = create(
         <>
           <PagerItem
-            itemIndex={0}
-            progress={progress}
+            position={sourcePosition}
             containerSize={100}
-            isActive
-            offset={new Animated.Value(0)}
-            transitionDistance={2}
             animationType="slide"
-            activityState={ActivityState.FULL_ACTIVE}
+            activityState={ActivityState.PARTIAL_ACTIVE}
             priority={1}
             useNativeScreens
           >
             <View testID="source" />
           </PagerItem>
           <PagerItem
-            itemIndex={2}
-            progress={progress}
+            position={targetPosition}
             containerSize={100}
-            isActive={false}
-            offset={new Animated.Value(0)}
-            transitionDistance={2}
             animationType="slide"
-            activityState={ActivityState.PARTIAL_ACTIVE}
+            activityState={ActivityState.FULL_ACTIVE}
             priority={2}
             useNativeScreens
           >
@@ -134,8 +146,10 @@ describe('PagerItem native rendering', () => {
 
     const source = getScreen(renderer, 'source');
     const target = getScreen(renderer, 'target');
-    expect(source.props.activityState).toBe(ActivityState.FULL_ACTIVE);
-    expect(target.props.activityState).toBe(ActivityState.PARTIAL_ACTIVE);
+    expect(source.props.activityState).toBe(ActivityState.PARTIAL_ACTIVE);
+    expect(target.props.activityState).toBe(ActivityState.FULL_ACTIVE);
+    expect(readPositionStyle(source)).toBe('absolute');
+    expect(readPositionStyle(target)).toBe('absolute');
     expect(readTranslation(source, 'translateX')).toBe(0);
     expect(readTranslation(target, 'translateX')).toBe(100);
 
@@ -152,12 +166,8 @@ describe('PagerItem native rendering', () => {
     act(() => {
       renderer = create(
         <PagerItem
-          itemIndex={1}
-          progress={new Animated.Value(0)}
+          position={2}
           containerSize={100}
-          isActive={false}
-          offset={new Animated.Value(0)}
-          transitionDistance={1}
           animationType="slide"
           activityState={ActivityState.INACTIVE}
           priority={0}
@@ -173,40 +183,39 @@ describe('PagerItem native rendering', () => {
     expect(inactive.props.activityState).toBe(ActivityState.INACTIVE);
     expect(inactive.props.shouldFreeze).toBe(true);
     expect(inactive.props.pointerEvents).toBe('none');
+    expect(readTranslation(inactive, 'translateX')).toBe(100);
   });
 
   it('keeps reverse vertical 2 -> 0 positions symmetric', () => {
     const progress = new Animated.Value(2);
+    const normalizedProgress = Animated.divide(
+      Animated.subtract(2, progress),
+      2
+    );
+    const sourcePosition = Animated.add(1, normalizedProgress);
+    const targetPosition = normalizedProgress;
 
     act(() => {
       renderer = create(
         <>
           <PagerItem
-            itemIndex={2}
-            progress={progress}
+            position={sourcePosition}
             containerSize={100}
             vertical
-            isActive
-            offset={new Animated.Value(0)}
-            transitionDistance={2}
             animationType="slide"
-            activityState={ActivityState.FULL_ACTIVE}
-            priority={2}
+            activityState={ActivityState.PARTIAL_ACTIVE}
+            priority={1}
             useNativeScreens
           >
             <View testID="reverse-source" />
           </PagerItem>
           <PagerItem
-            itemIndex={0}
-            progress={progress}
+            position={targetPosition}
             containerSize={100}
             vertical
-            isActive={false}
-            offset={new Animated.Value(0)}
-            transitionDistance={2}
             animationType="slide"
-            activityState={ActivityState.PARTIAL_ACTIVE}
-            priority={1}
+            activityState={ActivityState.FULL_ACTIVE}
+            priority={2}
             useNativeScreens
           >
             <View testID="reverse-target" />

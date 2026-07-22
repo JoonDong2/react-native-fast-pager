@@ -63,13 +63,9 @@ export interface FastPagerState {
 
 export interface PagerItemProps {
   children: PagerItemType;
-  itemIndex: number;
-  progress: Animated.Value;
+  position: number | Animated.AnimatedInterpolation<number>;
   containerSize: number;
   vertical?: boolean;
-  isActive: boolean;
-  offset: Animated.Value;
-  transitionDistance: number;
   animationType: AnimationType;
   activityState: ActivityState;
   priority: number;
