@@ -103,6 +103,14 @@ describe('FastPager swipe gestures under external state changes', () => {
     springs = [];
     onIndexChange = jest.fn();
 
+    jest.spyOn(Animated, 'timing').mockImplementation(() => {
+      return {
+        start: jest.fn(),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      } as ReturnType<typeof Animated.timing>;
+    });
+
     jest.spyOn(PanResponder, 'create').mockImplementation((config) => {
       panConfig = config;
       return realPanResponderCreate(config);

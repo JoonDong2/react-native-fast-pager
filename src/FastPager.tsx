@@ -447,6 +447,23 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     }
   };
 
+  // A progress value that no native-driver animation has run on yet updates
+  // through Animated's JS-driven path during a drag, which applies each frame
+  // via Fabric setNativeProps. On Android those per-frame updates are not
+  // rendered for react-native-screens Screens, so on the first gesture after
+  // mount the pages sit still (only the debounced React commit lands) while
+  // plain-View consumers such as tab indicators keep tracking. A zero-duration
+  // native-driver timing promotes the value and every attached consumer graph
+  // to the native driver, putting the first gesture on the same path every
+  // gesture takes after a settle spring has run once.
+  warmUpNativeProgress = () => {
+    Animated.timing(this.getProgress(), {
+      toValue: this.currentIndex,
+      duration: 0,
+      useNativeDriver: true,
+    }).start();
+  };
+
   getCurrentContainerSize = (): number => {
     const { vertical, layout: layoutProps } = this.props;
     const { layout } = this.state;
@@ -459,6 +476,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
   componentDidMount() {
     this.syncProgressListener();
     this.emitProgressChange(this.currentIndex);
+    this.warmUpNativeProgress();
   }
 
   componentWillUnmount() {
@@ -495,6 +513,8 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
           this.animationInstance = null;
         }
         nextDrivenValue.setValue(this.currentIndex);
+        // The swapped-in value may never have been driven natively either.
+        this.warmUpNativeProgress();
       }
 
       this.syncProgressListener();

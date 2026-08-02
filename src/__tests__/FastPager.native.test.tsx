@@ -78,6 +78,12 @@ type SpringController = {
   targetProgress: number;
 };
 
+type NativeWarmUp = {
+  config: Parameters<typeof Animated.timing>[1];
+  start: ReturnType<typeof jest.fn>;
+  value: Animated.Value;
+};
+
 const children = [0, 1, 2].map((index) => (
   <View key={index} testID={`page-${index}`} />
 ));
@@ -133,6 +139,7 @@ const expectLayoutOwner = (
 describe('FastPager native screen transitions', () => {
   let renderer: ReactTestRenderer;
   let springs: SpringController[];
+  let nativeWarmUps: NativeWarmUp[];
 
   beforeAll(() => {
     (
@@ -144,7 +151,23 @@ describe('FastPager native screen transitions', () => {
 
   beforeEach(() => {
     springs = [];
+    nativeWarmUps = [];
     mockPageRenders.length = 0;
+
+    jest.spyOn(Animated, 'timing').mockImplementation((value, config) => {
+      const start = jest.fn();
+      nativeWarmUps.push({
+        config,
+        start,
+        value: value as Animated.Value,
+      });
+
+      return {
+        start,
+        stop: jest.fn(),
+        reset: jest.fn(),
+      } as ReturnType<typeof Animated.timing>;
+    });
 
     jest.spyOn(Animated, 'spring').mockImplementation((value, config) => {
       let callback: ((result: { finished: boolean }) => void) | undefined;
@@ -200,6 +223,54 @@ describe('FastPager native screen transitions', () => {
       spring!.finish();
     });
   };
+
+  it('promotes the progress graph with a zero-duration native timing on mount', () => {
+    const instance = renderer.root.findByType(FastPager).instance as FastPager;
+
+    expect(nativeWarmUps).toHaveLength(1);
+    expect(nativeWarmUps[0]).toMatchObject({
+      config: {
+        duration: 0,
+        toValue: 0,
+        useNativeDriver: true,
+      },
+      value: instance.progress,
+    });
+    expect(nativeWarmUps[0]!.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('promotes a newly adopted progress value when the binding changes', () => {
+    const adoptedProgress = new Animated.Value(99);
+    const adoptedHandler = {
+      _argMapping: [{ nativeEvent: { progress: adoptedProgress } }],
+      _listeners: [],
+    } as unknown as React.ComponentProps<typeof FastPager>['onProgressChange'];
+
+    act(() => {
+      renderer.update(
+        <FastPager
+          index={0}
+          layout={{ width: 100 }}
+          renderMode="native"
+          onProgressChange={adoptedHandler}
+        >
+          {children}
+        </FastPager>
+      );
+    });
+
+    expect(nativeWarmUps).toHaveLength(2);
+    expect(nativeWarmUps[1]).toMatchObject({
+      config: {
+        duration: 0,
+        toValue: 0,
+        useNativeDriver: true,
+      },
+      value: adoptedProgress,
+    });
+    expect(nativeWarmUps[1]!.start).toHaveBeenCalledTimes(1);
+    expect((adoptedProgress as InspectableAnimatedValue).__getValue()).toBe(0);
+  });
 
   it('parks every page in slot 0, 1, or 2 on the first render', () => {
     expectPage(renderer, 0, ActivityState.FULL_ACTIVE, 1);
@@ -466,6 +537,14 @@ describe('FastPager index reporting', () => {
   beforeEach(() => {
     springs = [];
     onIndexChange = jest.fn();
+
+    jest.spyOn(Animated, 'timing').mockImplementation(() => {
+      return {
+        start: jest.fn(),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      } as ReturnType<typeof Animated.timing>;
+    });
 
     jest.spyOn(Animated, 'spring').mockImplementation((value, config) => {
       let callback: ((result: { finished: boolean }) => void) | undefined;
