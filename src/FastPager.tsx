@@ -999,45 +999,59 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     const Container = useNativeScreens ? ScreenContainer : View;
     const containerProps = useNativeScreens ? { enabled: true } : {};
 
+    // The pan handlers live on a plain RN View rather than on Container.
+    // React Native only wires its JSResponderHandler into view groups that
+    // implement ReactInterceptingViewGroup (ViewManager.java), and on Android
+    // that handler is what makes a granted JS responder intercept touches so
+    // that native descendants stop receiving them. ReactViewGroup implements
+    // it; react-native-screens' ScreenContainer does not. With the handlers on
+    // ScreenContainer, blockNativeResponder (on by default in PanResponder)
+    // silently does nothing, so a scrollable inside a page can take the touch
+    // away mid-swipe and the gesture dies as onPanResponderTerminate. Owning
+    // the gesture from a View keeps that blocking intact while pages stay
+    // wrapped in native screens.
     return (
-      <Container
+      <View
         onLayout={this.handleLayout}
-        {...containerProps}
         style={[styles.container, style]}
         {...(this.props.swipeEnabled !== false
           ? this.panResponder.panHandlers
           : undefined)}
       >
-        {renderIndices
-          .filter((i) => children[i] != null)
-          .map((i) => {
-            const activityState = this.getActivityState(i);
+        <Container {...containerProps} style={styles.container}>
+          {renderIndices
+            .filter((i) => children[i] != null)
+            .map((i) => {
+              const activityState = this.getActivityState(i);
 
-            // Check if this child has never been mounted
-            const isUnmounted =
-              this.props.keepAlive !== undefined && !mountedIndices.has(i);
-            // If swipeEnabled and never mounted, disable freeze to allow initial render
-            const itemFreeze =
-              this.props.swipeEnabled !== false && isUnmounted ? false : freeze;
+              // Check if this child has never been mounted
+              const isUnmounted =
+                this.props.keepAlive !== undefined && !mountedIndices.has(i);
+              // If swipeEnabled and never mounted, disable freeze to allow initial render
+              const itemFreeze =
+                this.props.swipeEnabled !== false && isUnmounted
+                  ? false
+                  : freeze;
 
-            return (
-              <PagerItem
-                key={i}
-                position={this.getItemPosition(i)}
-                isLayoutOwner={i === layoutOwnerIndex}
-                activityState={activityState}
-                containerSize={containerSize}
-                vertical={vertical}
-                animationType={animationType || 'slide'}
-                priority={activityState}
-                useNativeScreens={useNativeScreens}
-                freeze={itemFreeze}
-              >
-                {children[i]!}
-              </PagerItem>
-            );
-          })}
-      </Container>
+              return (
+                <PagerItem
+                  key={i}
+                  position={this.getItemPosition(i)}
+                  isLayoutOwner={i === layoutOwnerIndex}
+                  activityState={activityState}
+                  containerSize={containerSize}
+                  vertical={vertical}
+                  animationType={animationType || 'slide'}
+                  priority={activityState}
+                  useNativeScreens={useNativeScreens}
+                  freeze={itemFreeze}
+                >
+                  {children[i]!}
+                </PagerItem>
+              );
+            })}
+        </Container>
+      </View>
     );
   }
 }
