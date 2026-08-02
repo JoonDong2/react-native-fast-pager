@@ -12,6 +12,7 @@ import {
   VELOCITY_THRESHOLD,
   CONTINUOUS_PRELOAD_THRESHOLD,
   INITIAL_PRELOAD_THRESHOLD,
+  DIRECTION_THRESHOLD,
 } from './constants';
 import { styles } from './styles';
 import { ActivityState } from './types';
@@ -199,8 +200,8 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
         const dy = Math.abs(gestureState.dy);
 
         const isValidSwipe = this.props.vertical
-          ? dy > dx && absDelta > 10
-          : dx > dy && absDelta > 10;
+          ? dy > dx && absDelta > DIRECTION_THRESHOLD
+          : dx > dy && absDelta > DIRECTION_THRESHOLD;
 
         if (!isValidSwipe) return false;
 
