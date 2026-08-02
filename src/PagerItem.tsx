@@ -59,10 +59,17 @@ export const PagerItem = memo(
       return style;
     }, [animationType, diff, containerSize, vertical]);
 
-    const containerStyle = {
-      zIndex: priority,
-      [vertical ? 'height' : 'width']: containerSize,
-    };
+    // containerSize is 0 until the container reports its first onLayout.
+    // Pinning pages to that size lays their content out at width (or height) 0,
+    // and children that cache a measurement then keep the wrong one. Leave the
+    // size off until it is known so pages stretch to the container instead.
+    const containerStyle =
+      containerSize > 0
+        ? {
+            zIndex: priority,
+            [vertical ? 'height' : 'width']: containerSize,
+          }
+        : { zIndex: priority };
 
     const commonStyle = [
       !isLayoutOwner && styles.inactiveItem,
@@ -83,14 +90,19 @@ export const PagerItem = memo(
     if (useNativeScreens) {
       return (
         <AnimatedScreen
-          shouldFreeze={shouldFreeze}
+          // react-native-screens applies its own freeze one tick after being
+          // asked to, which lets a page that has never been shown render and
+          // lay out once at a container size that has not settled yet. Turn it
+          // off and freeze the content directly, the same way view render mode
+          // does, so a page first lays out when it is shown.
+          shouldFreeze={false}
           activityState={activityState}
           style={commonStyle}
           pointerEvents={
             activityState === ActivityState.FULL_ACTIVE ? 'auto' : 'none'
           }
         >
-          {childContent}
+          <Freeze freeze={shouldFreeze}>{childContent}</Freeze>
         </AnimatedScreen>
       );
     }

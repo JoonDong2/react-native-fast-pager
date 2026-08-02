@@ -33,11 +33,12 @@ type InspectableAnimatedNode = {
 const getNativeScreens = (renderer: ReactTestRenderer) =>
   renderer.root.findAll((node) => String(node.type) === 'NativeScreen');
 
+// Page content sits behind a Freeze boundary, so the test id is looked up in
+// the screen's subtree rather than on its immediate child.
 const getScreen = (renderer: ReactTestRenderer, testID: string) => {
   const screen = getNativeScreens(renderer).find(
     (candidate) =>
-      (candidate.props.children as React.ReactElement<{ testID?: string }>)
-        .props.testID === testID
+      candidate.findAll((node) => node.props?.testID === testID).length > 0
   );
   expect(screen).toBeDefined();
   return screen!;
@@ -181,12 +182,19 @@ describe('PagerItem native rendering', () => {
       );
     });
 
-    const inactive = getScreen(renderer, 'inactive');
-    expect(inactive.props.activityState).toBe(ActivityState.INACTIVE);
-    expect(inactive.props.shouldFreeze).toBe(true);
-    expect(inactive.props.pointerEvents).toBe('none');
-    expect(readPositionStyle(inactive)).toBe('absolute');
-    expect(readTranslation(inactive, 'translateX')).toBe(100);
+    const inactive = getNativeScreens(renderer)[0];
+    expect(inactive).toBeDefined();
+    expect(inactive!.props.activityState).toBe(ActivityState.INACTIVE);
+    // The screens' own delayed freeze stays off; the content is frozen directly.
+    expect(inactive!.props.shouldFreeze).toBe(false);
+    expect(inactive!.props.pointerEvents).toBe('none');
+    expect(readPositionStyle(inactive!)).toBe('absolute');
+    expect(readTranslation(inactive!, 'translateX')).toBe(100);
+    // A page that has never been shown keeps its content unrendered, so it
+    // cannot be laid out at a container size that is not settled yet.
+    expect(
+      inactive!.findAll((node) => node.props?.testID === 'inactive')
+    ).toHaveLength(0);
   });
 
   it('keeps reverse vertical 2 -> 0 positions symmetric', () => {
@@ -243,5 +251,45 @@ describe('PagerItem native rendering', () => {
     act(() => progress.setValue(0));
     expect(readTranslation(source, 'translateY')).toBe(100);
     expect(readTranslation(target, 'translateY')).toBe(0);
+  });
+  it('omits the page size until the container has been measured', () => {
+    act(() => {
+      renderer = create(
+        <>
+          <PagerItem
+            position={1}
+            isLayoutOwner
+            containerSize={0}
+            animationType="slide"
+            activityState={ActivityState.FULL_ACTIVE}
+            priority={2}
+            useNativeScreens
+          >
+            <View testID="unmeasured" />
+          </PagerItem>
+          <PagerItem
+            position={1}
+            isLayoutOwner
+            containerSize={100}
+            animationType="slide"
+            activityState={ActivityState.FULL_ACTIVE}
+            priority={2}
+            useNativeScreens
+          >
+            <View testID="measured" />
+          </PagerItem>
+        </>
+      );
+    });
+
+    const unmeasured = StyleSheet.flatten(
+      getScreen(renderer, 'unmeasured').props.style
+    ) as ViewStyle;
+    const measured = StyleSheet.flatten(
+      getScreen(renderer, 'measured').props.style
+    ) as ViewStyle;
+
+    expect(unmeasured.width).toBeUndefined();
+    expect(measured.width).toBe(100);
   });
 });
