@@ -152,6 +152,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
   private currentIndex: number; // Logical current index (equivalent to useRef in hooks)
   private animationInstance: ReturnType<typeof Animated.spring> | null = null;
   private panResponder: PanResponderInstance;
+  private pendingIndexChange: number | null = null;
   private isUnmounted = false;
 
   static defaultProps = {
@@ -355,7 +356,8 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       () => {
         if (targetIdx !== currentIdx) {
           this.ensureMounted(targetIdx);
-          this.props.onIndexChange?.(targetIdx);
+          // Reported once the pager has arrived, not while it is still moving
+          this.pendingIndexChange = targetIdx;
         }
         // Pass current (previous) index as fromIndex to track departing screen
         this.runAnimation(targetIdx, Math.abs(velocity), currentIdx);
@@ -650,6 +652,15 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     this.commitProgrammaticTransition(fromIndex, targetIndex, true);
   };
 
+  // An index the pager moved to on its own, held back until the move finishes
+  // so nothing outside reacts to a page the pager has not arrived at yet.
+  flushIndexChange = () => {
+    const index = this.pendingIndexChange;
+    if (index === null) return;
+    this.pendingIndexChange = null;
+    this.props.onIndexChange?.(index);
+  };
+
   // --- Animation Logic ---
   runAnimation = (
     targetIndex: number,
@@ -692,6 +703,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
           },
           () => {
             this.pruneMountedIndices(targetIndex);
+            this.flushIndexChange();
             this.props.onSwipeEnd?.(targetIndex);
           }
         );
@@ -723,6 +735,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
             () => {
               // Clean up immediately when not animated
               this.pruneMountedIndices(targetIndex);
+              this.flushIndexChange();
             }
           );
           return;
@@ -752,7 +765,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
         this.ensureMounted(prevIndex);
         this.animateToIndex(targetIndex, false, prevIndex);
       }
-      this.props.onIndexChange?.(targetIndex);
+      this.pendingIndexChange = targetIndex;
     }
   };
 

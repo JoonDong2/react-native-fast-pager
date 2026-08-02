@@ -457,3 +457,105 @@ describe('FastPager native screen transitions', () => {
     expectPage(renderer, 2, ActivityState.FULL_ACTIVE, 1);
   });
 });
+
+describe('FastPager index reporting', () => {
+  let renderer: ReactTestRenderer;
+  let springs: SpringController[];
+  let onIndexChange: ReturnType<typeof jest.fn>;
+
+  beforeEach(() => {
+    springs = [];
+    onIndexChange = jest.fn();
+
+    jest.spyOn(Animated, 'spring').mockImplementation((value, config) => {
+      let callback: ((result: { finished: boolean }) => void) | undefined;
+      const animatedValue = value as Animated.Value;
+
+      springs.push({
+        startProgress: (animatedValue as InspectableAnimatedValue).__getValue(),
+        setProgress: (progress) => animatedValue.setValue(progress),
+        targetProgress: config.toValue as number,
+        finish: () => {
+          animatedValue.setValue(config.toValue as number);
+          callback?.({ finished: true });
+        },
+      });
+
+      return {
+        start: (nextCallback) => {
+          callback = nextCallback;
+        },
+        stop: () => callback?.({ finished: false }),
+        reset: jest.fn(),
+      } as ReturnType<typeof Animated.spring>;
+    });
+  });
+
+  afterEach(() => {
+    act(() => {
+      renderer.unmount();
+    });
+    jest.restoreAllMocks();
+  });
+
+  const mount = () => {
+    const ref = React.createRef<InstanceType<typeof FastPager> | null>();
+    act(() => {
+      renderer = TestRenderer.create(
+        <FastPager
+          ref={ref}
+          index={0}
+          layout={{ width: 100 }}
+          renderMode="native"
+          onIndexChange={onIndexChange}
+        >
+          {children}
+        </FastPager>
+      );
+    });
+    return ref;
+  };
+
+  it('reports the index once the pager has arrived, not when it sets off', () => {
+    const ref = mount();
+
+    act(() => {
+      ref.current!.goTo(1);
+    });
+    expect(onIndexChange).not.toHaveBeenCalled();
+
+    act(() => {
+      springs.at(-1)!.finish();
+    });
+    expect(onIndexChange).toHaveBeenCalledTimes(1);
+    expect(onIndexChange).toHaveBeenCalledWith(1);
+  });
+
+  it('reports the index it settled on when a move is redirected midway', () => {
+    const ref = mount();
+
+    act(() => {
+      ref.current!.goTo(1);
+    });
+    act(() => {
+      ref.current!.goTo(2);
+    });
+    expect(onIndexChange).not.toHaveBeenCalled();
+
+    act(() => {
+      springs.at(-1)!.finish();
+    });
+    expect(onIndexChange).toHaveBeenCalledTimes(1);
+    expect(onIndexChange).toHaveBeenCalledWith(2);
+  });
+
+  it('reports an unanimated move as soon as it lands', () => {
+    const ref = mount();
+
+    act(() => {
+      ref.current!.goTo(2, false);
+    });
+    expect(onIndexChange).toHaveBeenCalledTimes(1);
+    expect(onIndexChange).toHaveBeenCalledWith(2);
+  });
+});
