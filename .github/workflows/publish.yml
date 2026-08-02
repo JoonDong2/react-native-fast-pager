@@ -30,7 +30,12 @@ jobs:
 
       - name: Bump version
         run: |
-          npm version patch -m 'chore: bump version to %s'
+          CURRENT_MAJOR=$(node -p "require('./package.json').version.split('.')[0]")
+          if [ "$CURRENT_MAJOR" = "0" ]; then
+            npm version major -m 'chore: bump version to %s'
+          else
+            npm version patch -m 'chore: bump version to %s'
+          fi
 
       - name: Build
         run: yarn prepare
