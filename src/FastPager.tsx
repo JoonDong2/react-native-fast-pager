@@ -153,6 +153,15 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
   private animationInstance: ReturnType<typeof Animated.spring> | null = null;
   private panResponder: PanResponderInstance;
   private pendingIndexChange: number | null = null;
+  // Self-navigated indices reported via onIndexChange that a controlled
+  // parent has not rendered back into the index prop yet. A late prop change
+  // matching one of these is an acknowledgement, not a navigation command.
+  private reportedIndexQueue: number[] = [];
+  // True between onPanResponderGrant and the gesture's release/terminate.
+  private activePanGesture = false;
+  // Set when an external index change takes over mid-gesture; the remainder
+  // of that gesture must not drive progress or settle.
+  private panGestureOverridden = false;
   private isUnmounted = false;
 
   static defaultProps = {
@@ -227,6 +236,8 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       onPanResponderTerminationRequest: () => false,
 
       onPanResponderGrant: () => {
+        this.activePanGesture = true;
+        this.panGestureOverridden = false;
         this.setState({
           isAnimating: true,
           swipingToIndex: null,
@@ -235,6 +246,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       },
 
       onPanResponderMove: (_, gestureState) => {
+        if (this.panGestureOverridden) return;
         const currentIdx = this.currentIndex;
         const containerSize = this.getCurrentContainerSize();
         if (containerSize === 0) return;
@@ -297,6 +309,12 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
   }
 
   settlePan = (gestureState: PanResponderGestureState) => {
+    const wasOverridden = this.panGestureOverridden;
+    this.activePanGesture = false;
+    this.panGestureOverridden = false;
+    // An external index change already owns the transition; the end of the
+    // gesture must not settle on top of it.
+    if (wasOverridden) return;
     const currentIdx = this.currentIndex;
     const containerSize = this.getCurrentContainerSize();
     if (containerSize === 0) {
@@ -489,6 +507,21 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
 
     // When the external index prop changes
     if (prevIndex !== nextIndex) {
+      // A controlled parent renders reported indices back with arbitrary
+      // delay (onIndexChange -> setState -> render), possibly after the user
+      // has navigated further. Such an echo acknowledges an old report;
+      // treating it as a command would yank the pager off the page the user
+      // is on or hijack a gesture that is still in progress.
+      const echoAt = this.reportedIndexQueue.lastIndexOf(nextIndex);
+      if (echoAt !== -1) {
+        // Everything up to the matched report is superseded by this render.
+        this.reportedIndexQueue.splice(0, echoAt + 1);
+        if (this.currentIndex === nextIndex) {
+          this.ensureMounted(nextIndex);
+        }
+        return;
+      }
+
       // Resolve race condition during swipe:
       // If we've already reached nextIndex internally (e.g. via swipe),
       // skip the forced navigation from the prop update
@@ -498,6 +531,15 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       }
 
       // --- Forced navigation logic (e.g. button press) ---
+
+      // The parent commanded this move: it needs no report back, reports
+      // queued for moves it overrode are moot, and a live gesture no longer
+      // owns the transition.
+      this.reportedIndexQueue = [];
+      this.pendingIndexChange = null;
+      if (this.activePanGesture) {
+        this.panGestureOverridden = true;
+      }
 
       // [Important] Update ref (this.currentIndex) on external change
       this.currentIndex = nextIndex;
@@ -658,7 +700,11 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     const index = this.pendingIndexChange;
     if (index === null) return;
     this.pendingIndexChange = null;
-    this.props.onIndexChange?.(index);
+    if (!this.props.onIndexChange) return;
+    // Queued before the callback so a parent that re-renders synchronously
+    // still sees the report as an expected echo.
+    this.reportedIndexQueue.push(index);
+    this.props.onIndexChange(index);
   };
 
   // --- Animation Logic ---
@@ -757,6 +803,11 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     if (targetIndex !== this.currentIndex) {
       const prevIndex = this.currentIndex;
       this.currentIndex = targetIndex;
+      if (this.activePanGesture) {
+        // An imperative move takes over a live gesture the same way an index
+        // prop change does.
+        this.panGestureOverridden = true;
+      }
 
       if (animated) {
         this.startProgrammaticTransition(prevIndex, targetIndex);
