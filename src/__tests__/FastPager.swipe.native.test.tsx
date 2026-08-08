@@ -203,6 +203,12 @@ describe('FastPager swipe gestures under external state changes', () => {
     });
   };
 
+  const terminateSwipe = (dx: number, vx: number) => {
+    act(() => {
+      panConfig.onPanResponderTerminate?.(gestureEvent, gesture({ dx, vx }));
+    });
+  };
+
   const finishLatestSpring = () => {
     const spring = springs.at(-1);
     expect(spring).toBeDefined();
@@ -232,6 +238,70 @@ describe('FastPager swipe gestures under external state changes', () => {
     expect(pages).toContainEqual({ activityState, itemIndex, position });
   };
 
+  it('reports the selected index as soon as the gesture is released', () => {
+    mount(0);
+
+    beginSwipe(-30);
+    moveSwipe(-60);
+    expect(onIndexChange).not.toHaveBeenCalled();
+
+    releaseSwipe(-60, -1);
+    expect(onIndexChange.mock.calls).toEqual([[1]]);
+    expect(springs.at(-1)!.targetProgress).toBe(1);
+
+    finishLatestSpring();
+    expect(onIndexChange.mock.calls).toEqual([[1]]);
+    expectPage(1, ActivityState.FULL_ACTIVE, 1);
+  });
+
+  it('does not report an index when the released gesture snaps back', () => {
+    mount(0);
+
+    beginSwipe(-25);
+    moveSwipe(-10);
+    releaseSwipe(-10, 0);
+
+    expect(springs.at(-1)!.targetProgress).toBe(0);
+    expect(onIndexChange).not.toHaveBeenCalled();
+
+    finishLatestSpring();
+    expect(onIndexChange).not.toHaveBeenCalled();
+  });
+
+  it('cancels instead of advancing when the responder terminates before finger-up', () => {
+    mount(0);
+
+    beginSwipe(-30);
+    moveSwipe(-80);
+    expect(progressValue()).toBeCloseTo(0.8);
+
+    terminateSwipe(-80, -2);
+    expect(springs.at(-1)!.targetProgress).toBe(0);
+    expect(onIndexChange).not.toHaveBeenCalled();
+
+    finishLatestSpring();
+    expect(progressValue()).toBe(0);
+    expect(onIndexChange).not.toHaveBeenCalled();
+    expectPage(0, ActivityState.FULL_ACTIVE, 1);
+  });
+
+  it('does not overwrite a navigation commanded from the release callback', () => {
+    mount(0);
+    onIndexChange.mockImplementationOnce(() => {
+      renderer.update(pagerElement(2));
+    });
+
+    beginSwipe(-30);
+    moveSwipe(-60);
+    releaseSwipe(-60, -1);
+
+    expect(onIndexChange.mock.calls).toEqual([[1]]);
+    expect(springs.at(-1)!.targetProgress).toBe(2);
+
+    finishLatestSpring();
+    expectPage(2, ActivityState.FULL_ACTIVE, 1);
+  });
+
   it('keeps a live swipe unaffected by unrelated re-renders', () => {
     mount(0);
 
@@ -252,6 +322,7 @@ describe('FastPager swipe gestures under external state changes', () => {
 
     releaseSwipe(-50, -1);
     expect(springs.at(-1)!.targetProgress).toBe(1);
+    expect(onIndexChange.mock.calls).toEqual([[1]]);
 
     finishLatestSpring();
     expect(onIndexChange.mock.calls).toEqual([[1]]);
@@ -265,6 +336,7 @@ describe('FastPager swipe gestures under external state changes', () => {
     beginSwipe(-30);
     moveSwipe(-60);
     releaseSwipe(-60, -1);
+    expect(onIndexChange.mock.calls).toEqual([[1]]);
     finishLatestSpring();
     expect(onIndexChange.mock.calls).toEqual([[1]]);
 
@@ -273,6 +345,7 @@ describe('FastPager swipe gestures under external state changes', () => {
     moveSwipe(-60);
     releaseSwipe(-60, -1);
     expect(springs.at(-1)!.targetProgress).toBe(2);
+    expect(onIndexChange.mock.calls).toEqual([[1], [2]]);
     const springCount = springs.length;
 
     // The delayed echo of the first report lands now
@@ -299,10 +372,12 @@ describe('FastPager swipe gestures under external state changes', () => {
     beginSwipe(-30);
     moveSwipe(-60);
     releaseSwipe(-60, -1);
+    expect(onIndexChange.mock.calls).toEqual([[1]]);
     finishLatestSpring();
     beginSwipe(-30);
     moveSwipe(-60);
     releaseSwipe(-60, -1);
+    expect(onIndexChange.mock.calls).toEqual([[1], [2]]);
     finishLatestSpring();
     expect(onIndexChange.mock.calls).toEqual([[1], [2]]);
     const springCount = springs.length;
@@ -323,6 +398,7 @@ describe('FastPager swipe gestures under external state changes', () => {
 
     releaseSwipe(60, 1);
     expect(springs.at(-1)!.targetProgress).toBe(1);
+    expect(onIndexChange.mock.calls).toEqual([[1], [2], [1]]);
 
     finishLatestSpring();
     expect(onIndexChange.mock.calls).toEqual([[1], [2], [1]]);
@@ -335,6 +411,7 @@ describe('FastPager swipe gestures under external state changes', () => {
     beginSwipe(-30);
     moveSwipe(-60);
     releaseSwipe(-60, -1);
+    expect(onIndexChange.mock.calls).toEqual([[1]]);
     finishLatestSpring();
     expect(onIndexChange.mock.calls).toEqual([[1]]);
 

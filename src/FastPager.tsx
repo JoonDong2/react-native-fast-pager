@@ -152,6 +152,8 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
   private currentIndex: number; // Logical current index (equivalent to useRef in hooks)
   private animationInstance: ReturnType<typeof Animated.spring> | null = null;
   private panResponder: PanResponderInstance;
+  // Imperative moves are reported after arrival; gesture moves are reported
+  // as soon as release selects their destination.
   private pendingIndexChange: number | null = null;
   // Self-navigated indices reported via onIndexChange that a controlled
   // parent has not rendered back into the index prop yet. A late prop change
@@ -297,16 +299,40 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
         this.settlePan(gestureState);
       },
 
-      // iOS never consults onPanResponderTerminationRequest when a native
-      // responder (e.g. an enclosing scroll view) takes over, so an
-      // intentional horizontal swipe can be cancelled mid-gesture. Settle
-      // with the same offset/velocity decision as a release instead of
-      // unconditionally snapping back.
-      onPanResponderTerminate: (_, gestureState) => {
-        this.settlePan(gestureState);
+      // Termination is not a finger-up. A native parent can take the responder
+      // while the touch is still down, so committing by offset/velocity here
+      // would advance the page before the user releases the gesture.
+      onPanResponderTerminate: () => {
+        this.cancelPan();
       },
     });
   }
+
+  cancelPan = () => {
+    const wasOverridden = this.panGestureOverridden;
+    this.activePanGesture = false;
+    this.panGestureOverridden = false;
+    // An external index change already owns the transition.
+    if (wasOverridden) return;
+
+    const currentIdx = this.currentIndex;
+    const previewIndex = this.state.swipingToIndex;
+    const departingIndex =
+      previewIndex !== null && previewIndex !== currentIdx
+        ? previewIndex
+        : this.state.departingIndex;
+
+    this.setState(
+      {
+        transitionTarget: currentIdx,
+        swipingToIndex: null,
+        departingIndex,
+      },
+      () => {
+        this.runAnimation(currentIdx);
+      }
+    );
+  };
 
   settlePan = (gestureState: PanResponderGestureState) => {
     const wasOverridden = this.panGestureOverridden;
@@ -374,8 +400,13 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       () => {
         if (targetIdx !== currentIdx) {
           this.ensureMounted(targetIdx);
-          // Reported once the pager has arrived, not while it is still moving
-          this.pendingIndexChange = targetIdx;
+          // The user's selection is committed when release chooses the target,
+          // even though the visual settle animation is still in progress.
+          this.pendingIndexChange = null;
+          this.reportIndexChange(targetIdx);
+          // The callback may synchronously unmount the pager or command a
+          // different index. Do not let the released gesture overwrite it.
+          if (this.isUnmounted || this.currentIndex !== targetIdx) return;
         }
         // Pass current (previous) index as fromIndex to track departing screen
         this.runAnimation(targetIdx, Math.abs(velocity), currentIdx);
@@ -714,17 +745,20 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     this.commitProgrammaticTransition(fromIndex, targetIndex, true);
   };
 
-  // An index the pager moved to on its own, held back until the move finishes
-  // so nothing outside reacts to a page the pager has not arrived at yet.
-  flushIndexChange = () => {
-    const index = this.pendingIndexChange;
-    if (index === null) return;
-    this.pendingIndexChange = null;
+  reportIndexChange = (index: number) => {
     if (!this.props.onIndexChange) return;
     // Queued before the callback so a parent that re-renders synchronously
     // still sees the report as an expected echo.
     this.reportedIndexQueue.push(index);
     this.props.onIndexChange(index);
+  };
+
+  // Imperative moves retain their existing arrival-time reporting contract.
+  flushIndexChange = () => {
+    const index = this.pendingIndexChange;
+    if (index === null) return;
+    this.pendingIndexChange = null;
+    this.reportIndexChange(index);
   };
 
   // --- Animation Logic ---

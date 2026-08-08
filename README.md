@@ -136,7 +136,7 @@ With `useNativeDriver: true` and the standard `[{ nativeEvent: { progress } }]` 
 |---|---|---|---|
 | `children` | `PagerItemType[]` | *required* | Pages to transition between. ReactElement or render function. |
 | `index` | `number` | `0` | Currently active page index. |
-| `onIndexChange` | `(index: number) => void` | - | Called when the page index changes via swipe. |
+| `onIndexChange` | `(index: number) => void` | - | Called when releasing a swipe commits to a different page, before the settle animation completes. |
 | `onProgressChange` | `(event: { nativeEvent: { progress: number } }) => void` | - | Called as animated progress changes. Compatible with `Animated.event([{ nativeEvent: { progress } }])`; with `useNativeDriver: true` the mapped value is driven natively. |
 | `renderMode` | `'view' \| 'native'` | `'native'` | Set to `'native'` to use the native `ScreenContainer` implementation. |
 | `animationType` | `'slide' \| 'fade' \| 'fade-slide' \| 'none'` | `'slide'` | Transition animation type. |
