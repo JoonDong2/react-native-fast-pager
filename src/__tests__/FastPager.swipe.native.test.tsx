@@ -89,6 +89,8 @@ describe('FastPager swipe gestures under external state changes', () => {
   let springs: SpringController[];
   let panConfig: PanResponderConfig;
   let onIndexChange: ReturnType<typeof jest.fn>;
+  let onSwipeRelease: ReturnType<typeof jest.fn>;
+  let onSwipeEnd: ReturnType<typeof jest.fn>;
   const pagerRef = React.createRef<InstanceType<typeof FastPager> | null>();
 
   beforeAll(() => {
@@ -102,6 +104,8 @@ describe('FastPager swipe gestures under external state changes', () => {
   beforeEach(() => {
     springs = [];
     onIndexChange = jest.fn();
+    onSwipeRelease = jest.fn();
+    onSwipeEnd = jest.fn();
 
     jest.spyOn(Animated, 'timing').mockImplementation(() => {
       return {
@@ -157,6 +161,8 @@ describe('FastPager swipe gestures under external state changes', () => {
       layout={{ width: 100 }}
       renderMode="native"
       onIndexChange={onIndexChange}
+      onSwipeRelease={onSwipeRelease}
+      onSwipeEnd={onSwipeEnd}
     >
       {[0, 1, 2].map((i) => (
         <View key={i} testID={`page-${i}`} />
@@ -203,6 +209,12 @@ describe('FastPager swipe gestures under external state changes', () => {
     });
   };
 
+  const terminateSwipe = (dx: number, vx: number) => {
+    act(() => {
+      panConfig.onPanResponderTerminate?.(gestureEvent, gesture({ dx, vx }));
+    });
+  };
+
   const finishLatestSpring = () => {
     const spring = springs.at(-1);
     expect(spring).toBeDefined();
@@ -231,6 +243,90 @@ describe('FastPager swipe gestures under external state changes', () => {
 
     expect(pages).toContainEqual({ activityState, itemIndex, position });
   };
+
+  it('separates finger-up intent from settled index callbacks', () => {
+    mount(0);
+
+    beginSwipe(-30);
+    moveSwipe(-60);
+    expect(onSwipeRelease).not.toHaveBeenCalled();
+    expect(onIndexChange).not.toHaveBeenCalled();
+
+    releaseSwipe(-60, -1);
+    expect(onSwipeRelease.mock.calls).toEqual([[1]]);
+    expect(onIndexChange).not.toHaveBeenCalled();
+    expect(onSwipeEnd).not.toHaveBeenCalled();
+    expect(springs.at(-1)!.targetProgress).toBe(1);
+
+    finishLatestSpring();
+    expect(onSwipeRelease.mock.calls).toEqual([[1]]);
+    expect(onIndexChange.mock.calls).toEqual([[1]]);
+    expect(onSwipeEnd.mock.calls).toEqual([[1]]);
+    expectPage(1, ActivityState.FULL_ACTIVE, 1);
+  });
+
+  it('does not report a release intent when the gesture snaps back', () => {
+    mount(0);
+
+    beginSwipe(-25);
+    moveSwipe(-10);
+    releaseSwipe(-10, 0);
+
+    expect(springs.at(-1)!.targetProgress).toBe(0);
+    expect(onSwipeRelease).not.toHaveBeenCalled();
+    expect(onIndexChange).not.toHaveBeenCalled();
+
+    finishLatestSpring();
+    expect(onSwipeRelease).not.toHaveBeenCalled();
+    expect(onIndexChange).not.toHaveBeenCalled();
+  });
+
+  it('does not emit release intent for responder termination', () => {
+    mount(0);
+
+    beginSwipe(-30);
+    moveSwipe(-80);
+    terminateSwipe(-80, -2);
+
+    expect(springs.at(-1)!.targetProgress).toBe(1);
+    expect(onSwipeRelease).not.toHaveBeenCalled();
+  });
+
+  it('keeps settling when a release listener echoes the controlled index', () => {
+    mount(0);
+    onSwipeRelease.mockImplementationOnce((index) => {
+      renderer.update(pagerElement(index as number));
+    });
+
+    beginSwipe(-30);
+    moveSwipe(-60);
+    releaseSwipe(-60, -1);
+
+    expect(onSwipeRelease.mock.calls).toEqual([[1]]);
+    expect(springs).toHaveLength(1);
+    expect(springs.at(-1)!.targetProgress).toBe(1);
+
+    finishLatestSpring();
+    expect(onIndexChange.mock.calls).toEqual([[1]]);
+  });
+
+  it('does not overwrite navigation commanded by a release listener', () => {
+    mount(0);
+    onSwipeRelease.mockImplementationOnce(() => {
+      renderer.update(pagerElement(2));
+    });
+
+    beginSwipe(-30);
+    moveSwipe(-60);
+    releaseSwipe(-60, -1);
+
+    expect(onSwipeRelease.mock.calls).toEqual([[1]]);
+    expect(springs.at(-1)!.targetProgress).toBe(2);
+
+    finishLatestSpring();
+    expect(onIndexChange).not.toHaveBeenCalled();
+    expectPage(2, ActivityState.FULL_ACTIVE, 1);
+  });
 
   it('keeps a live swipe unaffected by unrelated re-renders', () => {
     mount(0);

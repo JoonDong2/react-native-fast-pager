@@ -136,7 +136,7 @@ function App() {
 |---|---|---|---|
 | `children` | `PagerItemType[]` | *필수* | 전환할 페이지 목록. ReactElement 또는 render function. |
 | `index` | `number` | `0` | 현재 활성 페이지의 인덱스. |
-| `onIndexChange` | `(index: number) => void` | - | 스와이프로 페이지 인덱스가 변경될 때 호출됩니다. |
+| `onIndexChange` | `(index: number) => void` | - | 스와이프가 다른 페이지에 도착한 뒤 호출됩니다. |
 | `onProgressChange` | `(event: { nativeEvent: { progress: number } }) => void` | - | animated progress가 변경될 때 호출됩니다. `Animated.event([{ nativeEvent: { progress } }])`와 함께 사용할 수 있으며, `useNativeDriver: true`면 매핑된 값을 네이티브에서 직접 구동합니다. |
 | `renderMode` | `'view' \| 'native'` | `'native'` | `'native'`로 설정하면 네이티브 `ScreenContainer` 구현을 사용합니다. |
 | `animationType` | `'slide' \| 'fade' \| 'fade-slide' \| 'none'` | `'slide'` | 전환 애니메이션 종류. |
@@ -147,8 +147,11 @@ function App() {
 | `layout` | `{ width?: number; height?: number }` | - | 컨테이너 크기를 직접 지정합니다. 미지정 시 `onLayout`으로 자동 측정됩니다. |
 | `style` | `StyleProp<ViewStyle>` | - | 컨테이너 스타일. |
 | `onSwipeStart` | `() => void` | - | 스와이프 제스처가 시작될 때 호출됩니다. |
+| `onSwipeRelease` | `(index: number) => void` | - | 손을 떼어 다른 페이지 이동이 확정될 때 settle 애니메이션 전에 호출됩니다. snap-back, responder termination, 명령형 이동에서는 호출되지 않습니다. |
 | `onSwipeEnd` | `(index: number) => void` | - | 스와이프 애니메이션이 완료된 후 호출됩니다. |
 | `onLayout` | `(event: LayoutChangeEvent) => void` | - | 컨테이너 레이아웃 이벤트. |
+
+`onSwipeRelease`는 제스처 의도를 미리 알아야 할 때만 사용하세요. 레이아웃, 스크롤, 활성 페이지 관련 동작은 pager가 도착한 뒤 `onIndexChange` 또는 `onSwipeEnd`에서 처리해야 합니다.
 
 ## Ref 메서드
 

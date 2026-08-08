@@ -136,7 +136,7 @@ With `useNativeDriver: true` and the standard `[{ nativeEvent: { progress } }]` 
 |---|---|---|---|
 | `children` | `PagerItemType[]` | *required* | Pages to transition between. ReactElement or render function. |
 | `index` | `number` | `0` | Currently active page index. |
-| `onIndexChange` | `(index: number) => void` | - | Called when the page index changes via swipe. |
+| `onIndexChange` | `(index: number) => void` | - | Called after a swipe settles on a different page. |
 | `onProgressChange` | `(event: { nativeEvent: { progress: number } }) => void` | - | Called as animated progress changes. Compatible with `Animated.event([{ nativeEvent: { progress } }])`; with `useNativeDriver: true` the mapped value is driven natively. |
 | `renderMode` | `'view' \| 'native'` | `'native'` | Set to `'native'` to use the native `ScreenContainer` implementation. |
 | `animationType` | `'slide' \| 'fade' \| 'fade-slide' \| 'none'` | `'slide'` | Transition animation type. |
@@ -147,8 +147,11 @@ With `useNativeDriver: true` and the standard `[{ nativeEvent: { progress } }]` 
 | `layout` | `{ width?: number; height?: number }` | - | Manually specify container size. Auto-measured via `onLayout` if not provided. |
 | `style` | `StyleProp<ViewStyle>` | - | Container style. |
 | `onSwipeStart` | `() => void` | - | Called when a swipe gesture starts. |
+| `onSwipeRelease` | `(index: number) => void` | - | Called when finger-up commits a different page, before the settle animation. Not called for snap-back, responder termination, or programmatic moves. |
 | `onSwipeEnd` | `(index: number) => void` | - | Called after the swipe animation completes. |
 | `onLayout` | `(event: LayoutChangeEvent) => void` | - | Container layout event. |
+
+Use `onSwipeRelease` for early gesture intent only. Keep layout, scrolling, and active-page side effects on `onIndexChange` or `onSwipeEnd`, after the pager has settled.
 
 ## Ref Methods
 
