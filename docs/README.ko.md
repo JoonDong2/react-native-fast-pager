@@ -136,7 +136,7 @@ function App() {
 |---|---|---|---|
 | `children` | `PagerItemType[]` | *필수* | 전환할 페이지 목록. ReactElement 또는 render function. |
 | `index` | `number` | `0` | 현재 활성 페이지의 인덱스. |
-| `onIndexChange` | `(index: number) => void` | - | 스와이프로 페이지 인덱스가 변경될 때 호출됩니다. |
+| `onIndexChange` | `(index: number) => void` | - | 스와이프가 다른 페이지를 선택하면 손을 뗀 시점에, settle 애니메이션 전에 호출됩니다. 원래 페이지로 돌아가거나, 제스처가 강제 종료되거나, `index` prop으로 이동한 경우에는 호출되지 않습니다. `goTo`는 이동이 끝난 뒤에 보고합니다. |
 | `onProgressChange` | `(event: { nativeEvent: { progress: number } }) => void` | - | animated progress가 변경될 때 호출됩니다. `Animated.event([{ nativeEvent: { progress } }])`와 함께 사용할 수 있으며, `useNativeDriver: true`면 매핑된 값을 네이티브에서 직접 구동합니다. |
 | `renderMode` | `'view' \| 'native'` | `'native'` | `'native'`로 설정하면 네이티브 `ScreenContainer` 구현을 사용합니다. |
 | `animationType` | `'slide' \| 'fade' \| 'fade-slide' \| 'none'` | `'slide'` | 전환 애니메이션 종류. |

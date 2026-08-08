@@ -152,6 +152,8 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
   private currentIndex: number; // Logical current index (equivalent to useRef in hooks)
   private animationInstance: ReturnType<typeof Animated.spring> | null = null;
   private panResponder: PanResponderInstance;
+  // Only imperative and prop-driven moves are held back until they land;
+  // gestures report as soon as the finger picks their destination.
   private pendingIndexChange: number | null = null;
   // Self-navigated indices reported via onIndexChange that a controlled
   // parent has not rendered back into the index prop yet. A late prop change
@@ -235,6 +237,12 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
 
       onPanResponderTerminationRequest: () => false,
 
+      // Nothing may take the touch away from a gesture the pager owns. This is
+      // the default on current React Native versions and a no-op where the
+      // platform ignores it, but the pager depends on it rather than on a
+      // default that used to be Android-only.
+      onShouldBlockNativeResponder: () => true,
+
       onPanResponderGrant: () => {
         this.activePanGesture = true;
         this.panGestureOverridden = false;
@@ -297,16 +305,45 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
         this.settlePan(gestureState);
       },
 
-      // iOS never consults onPanResponderTerminationRequest when a native
-      // responder (e.g. an enclosing scroll view) takes over, so an
-      // intentional horizontal swipe can be cancelled mid-gesture. Settle
-      // with the same offset/velocity decision as a release instead of
-      // unconditionally snapping back.
-      onPanResponderTerminate: (_, gestureState) => {
-        this.settlePan(gestureState);
+      // A terminate is not a finger-up. iOS never consults
+      // onPanResponderTerminationRequest when a native responder (e.g. an
+      // enclosing scroll view) takes over, so the touch can be pulled away
+      // while the finger is still down. Such a gesture never picked a
+      // destination, and committing one by offset/velocity would turn the page
+      // before the user let go.
+      onPanResponderTerminate: () => {
+        this.cancelPan();
       },
     });
   }
+
+  // The gesture was taken away instead of released, so it never chose a page.
+  // The pager returns to the one it is on.
+  cancelPan = () => {
+    const wasOverridden = this.panGestureOverridden;
+    this.activePanGesture = false;
+    this.panGestureOverridden = false;
+    // An external index change already owns the transition.
+    if (wasOverridden) return;
+
+    const targetIdx = this.currentIndex;
+    const previewIndex = this.state.swipingToIndex;
+    const departingIndex =
+      previewIndex !== null && previewIndex !== targetIdx
+        ? previewIndex
+        : this.state.departingIndex;
+
+    this.setState(
+      {
+        transitionTarget: targetIdx,
+        swipingToIndex: null,
+        departingIndex,
+      },
+      () => {
+        this.runAnimation(targetIdx);
+      }
+    );
+  };
 
   settlePan = (gestureState: PanResponderGestureState) => {
     const wasOverridden = this.panGestureOverridden;
@@ -374,8 +411,15 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       () => {
         if (targetIdx !== currentIdx) {
           this.ensureMounted(targetIdx);
-          // Reported once the pager has arrived, not while it is still moving
-          this.pendingIndexChange = targetIdx;
+          // Releasing the gesture is what picks the page, so that is when it
+          // is reported. Waiting for the settle animation would hold the
+          // report back for as long as the spring takes to come to rest, and
+          // lose it entirely whenever the next gesture interrupts that spring.
+          this.pendingIndexChange = null;
+          this.reportIndexChange(targetIdx);
+          // The callback may synchronously unmount the pager or command a
+          // different index. Do not let the released gesture overwrite it.
+          if (this.isUnmounted || this.currentIndex !== targetIdx) return;
         }
         // Pass current (previous) index as fromIndex to track departing screen
         this.runAnimation(targetIdx, Math.abs(velocity), currentIdx);
@@ -714,17 +758,23 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     this.commitProgrammaticTransition(fromIndex, targetIndex, true);
   };
 
-  // An index the pager moved to on its own, held back until the move finishes
-  // so nothing outside reacts to a page the pager has not arrived at yet.
-  flushIndexChange = () => {
-    const index = this.pendingIndexChange;
-    if (index === null) return;
-    this.pendingIndexChange = null;
+  reportIndexChange = (index: number) => {
     if (!this.props.onIndexChange) return;
     // Queued before the callback so a parent that re-renders synchronously
     // still sees the report as an expected echo.
     this.reportedIndexQueue.push(index);
     this.props.onIndexChange(index);
+  };
+
+  // An index the pager moved to on its own, held back until the move finishes
+  // so nothing outside reacts to a page the pager has not arrived at yet.
+  // Imperative and prop-driven moves keep that contract; the caller already
+  // knows the destination, so reporting it early buys nothing.
+  flushIndexChange = () => {
+    const index = this.pendingIndexChange;
+    if (index === null) return;
+    this.pendingIndexChange = null;
+    this.reportIndexChange(index);
   };
 
   // --- Animation Logic ---
