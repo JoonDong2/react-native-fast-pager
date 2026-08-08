@@ -294,7 +294,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       },
 
       onPanResponderRelease: (_, gestureState) => {
-        this.settlePan(gestureState, true);
+        this.settlePan(gestureState);
       },
 
       // iOS never consults onPanResponderTerminationRequest when a native
@@ -303,15 +303,12 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       // with the same offset/velocity decision as a release instead of
       // unconditionally snapping back.
       onPanResponderTerminate: (_, gestureState) => {
-        this.settlePan(gestureState, false);
+        this.settlePan(gestureState);
       },
     });
   }
 
-  settlePan = (
-    gestureState: PanResponderGestureState,
-    releasedByUser: boolean
-  ) => {
+  settlePan = (gestureState: PanResponderGestureState) => {
     const wasOverridden = this.panGestureOverridden;
     this.activePanGesture = false;
     this.panGestureOverridden = false;
@@ -379,13 +376,6 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
           this.ensureMounted(targetIdx);
           // Reported once the pager has arrived, not while it is still moving
           this.pendingIndexChange = targetIdx;
-          if (releasedByUser) {
-            this.props.onSwipeRelease?.(targetIdx);
-            // A release listener may synchronously unmount the pager or
-            // command a different destination. Do not overwrite that action
-            // with the gesture's original settle animation.
-            if (this.isUnmounted || this.currentIndex !== targetIdx) return;
-          }
         }
         // Pass current (previous) index as fromIndex to track departing screen
         this.runAnimation(targetIdx, Math.abs(velocity), currentIdx);

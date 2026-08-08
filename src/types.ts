@@ -38,7 +38,6 @@ export interface FastPagerProps {
   keepAlive?: number;
   onIndexChange?: (index: number) => void;
   onSwipeStart?: () => void;
-  onSwipeRelease?: (index: number) => void;
   onSwipeEnd?: (index: number) => void;
   swipeEnabled?: boolean;
   onProgressChange?: (event: FastPagerProgressChangeEvent) => void;
