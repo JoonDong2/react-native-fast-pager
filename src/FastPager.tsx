@@ -152,6 +152,12 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
   private currentIndex: number; // Logical current index (equivalent to useRef in hooks)
   private animationInstance: ReturnType<typeof Animated.spring> | null = null;
   private panResponder: PanResponderInstance;
+  // Progress the active drag is measured from. A drag that takes over a
+  // running transition starts between two pages, and has to continue from
+  // there rather than from the index the transition was heading to.
+  private gestureAnchor: number | null = null;
+  // Discards an anchor read that lands after the gesture it belongs to ended.
+  private gestureSequence = 0;
   // Only imperative and prop-driven moves are held back until they land;
   // gestures report as soon as the finger picks their destination.
   private pendingIndexChange: number | null = null;
@@ -217,18 +223,16 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
 
         if (!isValidSwipe) return false;
 
-        // Stop animation (without triggering unmount)
-        if (this.animationInstance) {
-          this.animationInstance.stop();
-          this.animationInstance = null;
-        }
         const childCount = this.props.children.length;
         const currentIdx = this.currentIndex;
 
         const isSwipingPrev = delta > 0; // Down or Right
         const isSwipingNext = delta < 0; // Up or Left
 
-        // Boundary check
+        // Boundary check. Nothing may be torn down before it: a rejected
+        // gesture that had already stopped a running transition would leave
+        // the pager parked between two pages with no gesture left to finish
+        // the move or report it.
         if (isSwipingNext && currentIdx >= childCount - 1) return false;
         if (isSwipingPrev && currentIdx <= 0) return false;
 
@@ -246,6 +250,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       onPanResponderGrant: () => {
         this.activePanGesture = true;
         this.panGestureOverridden = false;
+        this.anchorGesture();
         this.setState({
           isAnimating: true,
           swipingToIndex: null,
@@ -255,50 +260,25 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
 
       onPanResponderMove: (_, gestureState) => {
         if (this.panGestureOverridden) return;
-        const currentIdx = this.currentIndex;
+        // The anchor read for a drag that took over a transition has not come
+        // back yet. Holding the pages still for that frame is better than
+        // moving them against a guessed anchor.
+        const anchor = this.gestureAnchor;
+        if (anchor === null) return;
         const containerSize = this.getCurrentContainerSize();
         if (containerSize === 0) return;
 
         const delta = this.props.vertical ? gestureState.dy : gestureState.dx;
         const offset = -delta / containerSize;
-
-        const newProgress = currentIdx + offset;
         const childCount = this.props.children.length;
 
         const clampedValue = Math.max(
           -0.2,
-          Math.min(childCount - 1 + 0.2, newProgress)
+          Math.min(childCount - 1 + 0.2, anchor + offset)
         );
 
         this.getProgress().setValue(clampedValue);
-
-        // [Lazy Loading] Pre-mount target
-        const targetIdx = offset > 0 ? currentIdx + 1 : currentIdx - 1;
-
-        if (targetIdx >= 0 && targetIdx < childCount) {
-          // [Optimization] Class member access guarantees latest values (equivalent to useRef)
-          const { mountedIndices, swipingToIndex } = this.state;
-
-          const hasBeenMounted = mountedIndices.has(targetIdx);
-          // First mount uses INITIAL_PRELOAD_THRESHOLD,
-          // previously mounted screens use CONTINUOUS_PRELOAD_THRESHOLD
-          const threshold = hasBeenMounted
-            ? CONTINUOUS_PRELOAD_THRESHOLD
-            : INITIAL_PRELOAD_THRESHOLD;
-
-          if (Math.abs(offset) > threshold) {
-            if (!hasBeenMounted || swipingToIndex !== targetIdx) {
-              this.setState((prevState) => {
-                const nextMountedIndices = new Set(prevState.mountedIndices);
-                nextMountedIndices.add(targetIdx);
-                return {
-                  mountedIndices: nextMountedIndices,
-                  swipingToIndex: targetIdx,
-                };
-              });
-            }
-          }
-        }
+        this.syncDragParticipants(clampedValue, offset);
       },
 
       onPanResponderRelease: (_, gestureState) => {
@@ -317,12 +297,108 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     });
   }
 
+  // Where the drag is measured from. While a transition is still running the
+  // pages sit short of the index it is heading to, so a drag that takes it
+  // over has to continue from the progress on screen; measuring from the index
+  // instead snaps the pages a whole transition forward under the finger.
+  anchorGesture = () => {
+    const sequence = ++this.gestureSequence;
+
+    if (!this.animationInstance) {
+      this.gestureAnchor = this.currentIndex;
+      return;
+    }
+
+    this.animationInstance.stop();
+    this.animationInstance = null;
+    this.gestureAnchor = null;
+    // Native-driven progress only exists on the native side, so reading it
+    // back is asynchronous.
+    this.getProgress().stopAnimation((progress) => {
+      if (
+        this.isUnmounted ||
+        this.gestureSequence !== sequence ||
+        this.panGestureOverridden
+      ) {
+        return;
+      }
+      this.gestureAnchor = progress;
+    });
+  };
+
+  // Item positions are computed against two pages: the one being left and the
+  // one being entered. Those have to be the two pages the progress actually
+  // sits between, which moves when a drag takes over a running transition or
+  // crosses into the next page. The two models agree exactly at whole indices,
+  // so handing the pair over there is seamless.
+  syncDragParticipants = (progress: number, offset: number) => {
+    const childCount = this.props.children.length;
+    const departing = Math.max(
+      0,
+      Math.min(
+        childCount - 1,
+        offset > 0 ? Math.floor(progress) : Math.ceil(progress)
+      )
+    );
+    const heading = offset > 0 ? departing + 1 : departing - 1;
+    const travel = Math.abs(progress - departing);
+
+    this.setState((prevState) => {
+      let swipingToIndex = prevState.swipingToIndex;
+      let mountedIndices = prevState.mountedIndices;
+
+      if (heading >= 0 && heading < childCount) {
+        const hasBeenMounted = mountedIndices.has(heading);
+        // First mount uses INITIAL_PRELOAD_THRESHOLD,
+        // previously mounted screens use CONTINUOUS_PRELOAD_THRESHOLD
+        const threshold = hasBeenMounted
+          ? CONTINUOUS_PRELOAD_THRESHOLD
+          : INITIAL_PRELOAD_THRESHOLD;
+
+        // [Lazy Loading] Pre-mount target
+        if (travel > threshold) {
+          if (!hasBeenMounted) {
+            mountedIndices = new Set(mountedIndices).add(heading);
+          }
+          swipingToIndex = heading;
+        }
+      }
+
+      if (
+        prevState.activeIndex === departing &&
+        prevState.transitionTarget === null &&
+        prevState.departingIndex === null &&
+        prevState.swipingToIndex === swipingToIndex &&
+        prevState.mountedIndices === mountedIndices
+      ) {
+        return null;
+      }
+
+      return {
+        activeIndex: departing,
+        // A transition the drag took over no longer describes where the pages
+        // are; the drag owns the pair from here.
+        transitionTarget: null,
+        departingIndex: null,
+        swipingToIndex,
+        mountedIndices,
+      };
+    });
+  };
+
+  endGesture = () => {
+    this.activePanGesture = false;
+    this.panGestureOverridden = false;
+    this.gestureAnchor = null;
+    // Discards an anchor read still in flight for this gesture.
+    this.gestureSequence++;
+  };
+
   // The gesture was taken away instead of released, so it never chose a page.
   // The pager returns to the one it is on.
   cancelPan = () => {
     const wasOverridden = this.panGestureOverridden;
-    this.activePanGesture = false;
-    this.panGestureOverridden = false;
+    this.endGesture();
     // An external index change already owns the transition.
     if (wasOverridden) return;
 
@@ -347,8 +423,8 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
 
   settlePan = (gestureState: PanResponderGestureState) => {
     const wasOverridden = this.panGestureOverridden;
-    this.activePanGesture = false;
-    this.panGestureOverridden = false;
+    const anchor = this.gestureAnchor;
+    this.endGesture();
     // An external index change already owns the transition; the end of the
     // gesture must not settle on top of it.
     if (wasOverridden) return;
@@ -371,36 +447,53 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     const offset = -delta / containerSize;
     const velocity = -velocityValue;
     const childCount = this.props.children.length;
+    const clampToPages = (index: number) =>
+      Math.max(0, Math.min(childCount - 1, index));
 
-    let targetIdx = currentIdx;
-    const canGoNext = currentIdx < childCount - 1;
-    const canGoPrev = currentIdx > 0;
+    // The page the drag started on. It is the current index for a gesture that
+    // began at rest, and the nearer of the two pages on screen for one that
+    // took over a running transition.
+    const fromIdx = clampToPages(Math.round(anchor ?? currentIdx));
+
+    let targetIdx = fromIdx;
+    const canGoNext = fromIdx < childCount - 1;
+    const canGoPrev = fromIdx > 0;
 
     if (
       canGoNext &&
       (velocity > VELOCITY_THRESHOLD || offset > SWIPE_THRESHOLD)
     ) {
-      targetIdx = currentIdx + 1;
+      targetIdx = fromIdx + 1;
     } else if (
       canGoPrev &&
       (velocity < -VELOCITY_THRESHOLD || offset < -SWIPE_THRESHOLD)
     ) {
-      targetIdx = currentIdx - 1;
+      targetIdx = fromIdx - 1;
     }
 
+    // Only the two pages the progress sits between are positioned against each
+    // other, so the settle cannot reach past them.
+    const progress = clampToPages((anchor ?? currentIdx) + offset);
+    const lower = Math.floor(progress);
+    const upper = Math.ceil(progress);
+    targetIdx = Math.max(lower, Math.min(upper, targetIdx));
+
+    const previousIdx = currentIdx;
     this.currentIndex = targetIdx;
 
-    // [Aborted Swipe] When snapping back below the threshold, keep the
-    // previewed screen attached (activityState 1) as a departing screen so
-    // react-native-screens detaches it only after the snap-back animation
-    // finishes (renderMode='native'), instead of disappearing instantly.
+    // [Aborted Swipe] The page the settle moves away from - the previewed one
+    // when the swipe snaps back below the threshold - stays attached
+    // (activityState 1) as a departing screen, so react-native-screens
+    // detaches it only after the animation finishes (renderMode='native')
+    // instead of it disappearing instantly.
+    const departingIdx = targetIdx === lower ? upper : lower;
     const previewIndex = this.state.swipingToIndex;
     const departingIndex =
-      targetIdx === currentIdx &&
-      previewIndex !== null &&
-      previewIndex !== targetIdx
-        ? previewIndex
-        : this.state.departingIndex;
+      departingIdx !== targetIdx
+        ? departingIdx
+        : previewIndex !== null && previewIndex !== targetIdx
+          ? previewIndex
+          : this.state.departingIndex;
 
     this.setState(
       {
@@ -409,7 +502,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
         departingIndex,
       },
       () => {
-        if (targetIdx !== currentIdx) {
+        if (targetIdx !== previousIdx) {
           this.ensureMounted(targetIdx);
           // Releasing the gesture is what picks the page, so that is when it
           // is reported. Waiting for the settle animation would hold the
@@ -421,8 +514,8 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
           // different index. Do not let the released gesture overwrite it.
           if (this.isUnmounted || this.currentIndex !== targetIdx) return;
         }
-        // Pass current (previous) index as fromIndex to track departing screen
-        this.runAnimation(targetIdx, Math.abs(velocity), currentIdx);
+        // Pass the page being left as fromIndex to track the departing screen
+        this.runAnimation(targetIdx, Math.abs(velocity), departingIdx);
       }
     );
   };

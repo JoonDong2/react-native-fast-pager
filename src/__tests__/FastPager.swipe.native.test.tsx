@@ -180,7 +180,7 @@ describe('FastPager swipe gestures under external state changes', () => {
     });
   };
 
-  const beginSwipe = (dx: number) => {
+  const attemptSwipe = (dx: number) => {
     let granted = false;
     act(() => {
       granted =
@@ -192,7 +192,11 @@ describe('FastPager swipe gestures under external state changes', () => {
         panConfig.onPanResponderGrant?.(gestureEvent, gesture({ dx }));
       }
     });
-    expect(granted).toBe(true);
+    return granted;
+  };
+
+  const beginSwipe = (dx: number) => {
+    expect(attemptSwipe(dx)).toBe(true);
   };
 
   const moveSwipe = (dx: number) => {
@@ -323,6 +327,56 @@ describe('FastPager swipe gestures under external state changes', () => {
     finishLatestSpring();
     expect(onIndexChange).not.toHaveBeenCalled();
     expectPage(0, ActivityState.FULL_ACTIVE, 1);
+  });
+
+  it('continues a drag from the progress on screen when it takes over a settle', () => {
+    mount(0);
+
+    beginSwipe(-30);
+    moveSwipe(-60);
+    releaseSwipe(-60, -1);
+    expect(progressValue()).toBeCloseTo(0.6);
+    expect(springs.at(-1)!.targetProgress).toBe(1);
+
+    // Swiping again before the settle lands must not snap the pages to the
+    // index the settle was heading for
+    beginSwipe(-25);
+    moveSwipe(-30);
+    expect(progressValue()).toBeCloseTo(0.9);
+
+    moveSwipe(-60);
+    expect(progressValue()).toBeCloseTo(1.2);
+    // The pages the progress sits between own the transition now
+    expectPage(1, ActivityState.PARTIAL_ACTIVE, 0.8);
+    expectPage(2, ActivityState.FULL_ACTIVE, 1.8);
+
+    releaseSwipe(-60, -1);
+    expect(springs.at(-1)!.targetProgress).toBe(2);
+    expect(onIndexChange.mock.calls).toEqual([[1], [2]]);
+  });
+
+  it('leaves a running settle alone when the swipe is rejected at a boundary', () => {
+    mount(0);
+
+    beginSwipe(-30);
+    moveSwipe(-60);
+    releaseSwipe(-60, -1);
+    finishLatestSpring();
+
+    beginSwipe(-30);
+    moveSwipe(-60);
+    releaseSwipe(-60, -1);
+    expect(springs.at(-1)!.targetProgress).toBe(2);
+    const springCount = springs.length;
+
+    // Page 2 is the last page: the gesture is refused, so the settle it would
+    // otherwise have stopped has to keep running
+    expect(attemptSwipe(-30)).toBe(false);
+    expect(springs.at(-1)!.stopped).toBe(false);
+    expect(springs.length).toBe(springCount);
+
+    finishLatestSpring();
+    expectPage(2, ActivityState.FULL_ACTIVE, 1);
   });
 
   it('keeps a live swipe unaffected by unrelated re-renders', () => {
