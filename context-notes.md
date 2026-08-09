@@ -29,5 +29,13 @@
 - settle 대상은 `clamp(target, floor(p), ceil(p))`로 화면에 보이는 두 페이지로 제한한다. 그러지 않으면 1.75에서 3으로 튀며 중간 페이지가 사라진다.
 - 임계값 판정 기준 페이지는 `Math.round(anchor)` (제스처를 시작한 페이지). 평상시 제스처에서는 `currentIndex`와 같아 기존 감각이 그대로 유지된다.
 
+## 숨겨진 서브트리에서 살아 돌아오기 (2026-08-09 추가)
+- 증상: 바텀탭(FastPager)에서 탭을 몇 번 오간 뒤 Archive 탭에 들어가면 스와이프가 엉뚱한 위치에 멈추고 칩을 눌러도 반응이 없다. 앱 시작 직후 바로 들어가면 정상.
+- 원인: `freeze`가 비활성 페이지를 `<Freeze>`(Suspense)로 숨기는데, React는 숨겨지는 트리의 **클래스 컴포넌트에 `componentWillUnmount`를 호출**한다(React 19 `disappearLayoutEffects`, `ReactFabric-dev.js:11765` case 1). 인스턴스와 state는 유지되고 다시 보일 때 `componentDidMount`가 재호출된다.
+- `isUnmounted = true`를 되돌리는 곳이 없어서, 탭을 한 번이라도 떠나면 `runAnimation` 완료 콜백 / `startProgrammaticTransition`의 `stopAnimation` 콜백(= 칩 누름) / 제스처 anchor 읽기가 전부 조기 return 됐다. 즉 pager가 자기 애니메이션 콜백을 영구히 무시한다.
+- 수정: `componentDidMount`에서 `isUnmounted`를 되돌리고, 숨겨질 때 끊긴 전환을 현재 인덱스에 정착시킨다(`resumeAfterMount`). `componentWillUnmount`가 애니메이션을 멈춰버려 아무도 완료를 보고하지 않으므로, 상태를 직접 정리하지 않으면 이후 모든 제스처가 끝나지 않는 전환 위에서 계산된다.
+- 제스처 상태와 `reportedIndexQueue`도 함께 비운다. 숨겨지기 전에 보고한 인덱스는 이미 의미가 없고, 남아 있으면 이후 진짜 index 변경이 에코로 오인돼 삼켜진다(칩 무반응의 두 번째 경로).
+- 교훈: 이 컴포넌트에서 mount는 최초 1회가 아니다. `componentWillUnmount`에서 정리하는 것은 전부 `componentDidMount`에서 복구돼야 한다.
+
 ## 스프링 파라미터는 건드리지 않음
 - ζ=0.6, ω₀=10이면 첫 오버슈트가 0.39초에 9.5%, 시각적 정착까지 0.6~0.8초다. 느리고 탄력 있는 편이지만 이번 요청 범위 밖이라 유지했다. 보고 시점을 release로 옮겨 체감 지연은 사라진다.

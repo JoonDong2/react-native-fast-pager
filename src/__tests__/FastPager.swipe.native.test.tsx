@@ -217,6 +217,17 @@ describe('FastPager swipe gestures under external state changes', () => {
     });
   };
 
+  // React hides a frozen subtree by tearing down its layout effects: a class
+  // component gets componentWillUnmount with its instance kept alive, and
+  // componentDidMount again when the subtree is shown. A pager nested in
+  // another pager's page goes through this on every visit.
+  const hideAndShow = () => {
+    act(() => {
+      pagerRef.current!.componentWillUnmount();
+      pagerRef.current!.componentDidMount();
+    });
+  };
+
   const finishLatestSpring = () => {
     const spring = springs.at(-1);
     expect(spring).toBeDefined();
@@ -377,6 +388,50 @@ describe('FastPager swipe gestures under external state changes', () => {
 
     finishLatestSpring();
     expectPage(2, ActivityState.FULL_ACTIVE, 1);
+  });
+
+  it('still swipes and navigates after the subtree was hidden and shown', () => {
+    mount(0);
+
+    hideAndShow();
+
+    beginSwipe(-30);
+    moveSwipe(-60);
+    expect(progressValue()).toBeCloseTo(0.6);
+
+    releaseSwipe(-60, -1);
+    expect(onIndexChange.mock.calls).toEqual([[1]]);
+    finishLatestSpring();
+    expectPage(1, ActivityState.FULL_ACTIVE, 1);
+
+    // Echo of the report, then a real command from the parent
+    updateIndexProp(1);
+    updateIndexProp(2);
+    expect(springs.at(-1)!.targetProgress).toBe(2);
+
+    finishLatestSpring();
+    expectPage(2, ActivityState.FULL_ACTIVE, 1);
+  });
+
+  it('settles on its current page when hiding cuts a transition short', () => {
+    mount(0);
+
+    beginSwipe(-30);
+    moveSwipe(-60);
+    releaseSwipe(-60, -1);
+
+    // Hidden while the settle is still running: nothing will ever report that
+    // animation as finished, so the pager may not stay in it
+    hideAndShow();
+    expect(springs.at(-1)!.stopped).toBe(true);
+    expectPage(1, ActivityState.FULL_ACTIVE, 1);
+
+    updateIndexProp(1);
+    updateIndexProp(0);
+    expect(springs.at(-1)!.targetProgress).toBe(0);
+
+    finishLatestSpring();
+    expectPage(0, ActivityState.FULL_ACTIVE, 1);
   });
 
   it('keeps a live swipe unaffected by unrelated re-renders', () => {

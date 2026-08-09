@@ -610,11 +610,61 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     return layoutProps?.width ?? layout.width;
   };
 
+  // A mount is not necessarily the first one. React tears down and re-runs
+  // these lifecycles around a subtree it hides and shows again - which is what
+  // freeze does to every page that is not the active one, so a pager nested in
+  // another pager's page goes through it on every visit - while keeping the
+  // instance and its state. Everything componentWillUnmount tore down has to
+  // come back, starting with the flag that says the pager is gone: leaving it
+  // set makes the pager ignore its own animation callbacks forever.
   componentDidMount() {
+    this.isUnmounted = false;
+    this.resumeAfterMount();
     this.syncProgressListener();
     this.emitProgressChange(this.currentIndex);
     this.warmUpNativeProgress();
   }
+
+  // Whatever was in flight when the pager was hidden is over: its animation was
+  // stopped on the way out and nothing will report it as finished, and the
+  // touch that drove a gesture is long gone. The pager sits at its current
+  // index - warmUpNativeProgress puts the progress there - so the transition
+  // state has to say so too, or every later gesture and index change is
+  // measured against a transition that never ends.
+  resumeAfterMount = () => {
+    this.endGesture();
+    this.animationInstance = null;
+    // Reports the parent never rendered back are moot; a later index change is
+    // a command, not the echo of a move made before the pager was hidden.
+    this.reportedIndexQueue = [];
+
+    const targetIndex = this.currentIndex;
+    const { activeIndex, isAnimating, transitionTarget, swipingToIndex } =
+      this.state;
+    if (
+      !isAnimating &&
+      activeIndex === targetIndex &&
+      transitionTarget === null &&
+      swipingToIndex === null &&
+      this.state.departingIndex === null
+    ) {
+      return;
+    }
+
+    this.setState(
+      {
+        activeIndex: targetIndex,
+        transitionTarget: null,
+        swipingToIndex: null,
+        departingIndex: null,
+        isAnimating: false,
+      },
+      () => {
+        this.pruneMountedIndices(targetIndex);
+        this.flushIndexChange();
+      }
+    );
+  };
 
   componentWillUnmount() {
     this.isUnmounted = true;
