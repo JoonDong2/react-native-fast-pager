@@ -141,6 +141,11 @@ const createProgressBinding = (
   return { source: handler, kind: 'adopt', value, emitListeners };
 };
 
+// Pages mount the first time they are visited unless lazy is explicitly false.
+// keepAlive keeps that first-visit mounting even then, adding eviction on top.
+const mountsLazily = (props: FastPagerProps) =>
+  props.lazy !== false || props.keepAlive !== undefined;
+
 class FastPager extends Component<FastPagerProps, FastPagerState> {
   private internalProgress: Animated.Value;
   private progressBinding: ProgressBinding | null = null;
@@ -176,6 +181,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     renderMode: 'native',
     index: 0,
     swipeEnabled: true,
+    lazy: true,
     animationType: 'slide',
     direction: 'horizontal',
   };
@@ -197,10 +203,9 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
 
     this.state = {
       activeIndex: initialIndex,
-      mountedIndices:
-        props.keepAlive === undefined
-          ? new Set(props.children.map((_, index) => index))
-          : new Set([initialIndex]),
+      mountedIndices: mountsLazily(props)
+        ? new Set([initialIndex])
+        : new Set(props.children.map((_, index) => index)),
       swipingToIndex: null,
       isAnimating: false,
       departingIndex: null,
@@ -1151,10 +1156,10 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     const { children } = this.props;
     const childCount = children.length;
 
-    // With unlimited keepAlive every native Screen wrapper stays mounted from
+    // Unless mounting lazily, every native Screen wrapper stays mounted from
     // the first render. INACTIVE screens are still detached by
     // react-native-screens, but their parked slot is ready before reattachment.
-    if (this.props.keepAlive === undefined) {
+    if (!mountsLazily(this.props)) {
       return children.map((_, index) => index);
     }
 
@@ -1239,7 +1244,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
 
               // Check if this child has never been mounted
               const isUnmounted =
-                this.props.keepAlive !== undefined && !mountedIndices.has(i);
+                mountsLazily(this.props) && !mountedIndices.has(i);
               // If swipeEnabled and never mounted, disable freeze to allow initial render
               const itemFreeze =
                 this.props.swipeEnabled !== false && isUnmounted

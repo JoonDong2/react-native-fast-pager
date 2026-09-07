@@ -89,7 +89,12 @@ const children = [0, 1, 2].map((index) => (
 ));
 
 const pager = (index: number) => (
-  <FastPager index={index} layout={{ width: 100 }} renderMode="native">
+  <FastPager
+    index={index}
+    layout={{ width: 100 }}
+    renderMode="native"
+    lazy={false}
+  >
     {children}
   </FastPager>
 );

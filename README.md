@@ -143,6 +143,7 @@ With `useNativeDriver: true` and the standard `[{ nativeEvent: { progress } }]` 
 | `swipeEnabled` | `boolean` | `true` | Whether swipe gestures are enabled. |
 | `vertical` | `boolean` | `false` | Set to `true` to transition vertically. |
 | `keepAlive` | `number` | `undefined` (unlimited) | Maximum number of pages to keep mounted. Used for memory optimization. |
+| `lazy` | `boolean` | `true` | Mount a page when it is first visited instead of on the first render. Set to `false` to mount every page up front (ignored when `keepAlive` is set). Mounted pages stay mounted unless `keepAlive` limits them. |
 | `freeze` | `boolean` | `true` | Whether to apply `react-freeze` to inactive pages. |
 | `layout` | `{ width?: number; height?: number }` | - | Manually specify container size. Auto-measured via `onLayout` if not provided. |
 | `style` | `StyleProp<ViewStyle>` | - | Container style. |

@@ -36,6 +36,7 @@ export interface FastPagerProps {
   index?: number;
   style?: StyleProp<ViewStyle>;
   keepAlive?: number;
+  lazy?: boolean;
   onIndexChange?: (index: number) => void;
   onSwipeStart?: () => void;
   onSwipeEnd?: (index: number) => void;

@@ -143,6 +143,7 @@ function App() {
 | `swipeEnabled` | `boolean` | `true` | 스와이프 제스처 활성화 여부. |
 | `vertical` | `boolean` | `false` | `true`로 설정하면 세로 방향으로 전환합니다. |
 | `keepAlive` | `number` | `undefined` (무제한) | 마운트 상태를 유지할 최대 페이지 수. 메모리 최적화에 사용합니다. |
+| `lazy` | `boolean` | `true` | 페이지를 처음 방문할 때(스와이프로 향하거나 `index`/`goTo`로 지정될 때) 마운트합니다. `false`면 모든 페이지를 처음부터 마운트합니다(`keepAlive` 지정 시에는 무시). 마운트된 페이지는 `keepAlive`로 제한하지 않는 한 유지됩니다. |
 | `freeze` | `boolean` | `true` | 비활성 페이지에 `react-freeze`를 적용할지 여부. |
 | `layout` | `{ width?: number; height?: number }` | - | 컨테이너 크기를 직접 지정합니다. 미지정 시 `onLayout`으로 자동 측정됩니다. |
 | `style` | `StyleProp<ViewStyle>` | - | 컨테이너 스타일. |
