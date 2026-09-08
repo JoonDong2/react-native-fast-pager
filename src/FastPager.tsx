@@ -331,6 +331,28 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     });
   };
 
+  // A transition that spans more than one page stretches its progress across a
+  // single screen of travel, so the pages it owns sit where no pair of
+  // neighbours would put them. A drag that takes one over therefore keeps that
+  // pair until the progress reaches one of its two ends, where the two models
+  // agree; re-pairing anywhere in between would reposition every page on
+  // screen under the finger.
+  heldTransitionPair = (
+    state: FastPagerState,
+    progress: number
+  ): { from: number; to: number } | null => {
+    const { activeIndex, transitionTarget } = state;
+    if (transitionTarget === null) return null;
+    if (Math.abs(transitionTarget - activeIndex) < 2) return null;
+    if (
+      progress <= Math.min(activeIndex, transitionTarget) ||
+      progress >= Math.max(activeIndex, transitionTarget)
+    ) {
+      return null;
+    }
+    return { from: activeIndex, to: transitionTarget };
+  };
+
   // Item positions are computed against two pages: the one being left and the
   // one being entered. Those have to be the two pages the progress actually
   // sits between, which moves when a drag takes over a running transition or
@@ -349,6 +371,10 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     const travel = Math.abs(progress - departing);
 
     this.setState((prevState) => {
+      // Both of a held pair's pages are already mounted, so there is nothing to
+      // preview either.
+      if (this.heldTransitionPair(prevState, progress)) return null;
+
       let swipingToIndex = prevState.swipingToIndex;
       let mountedIndices = prevState.mountedIndices;
 
@@ -427,13 +453,21 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
   };
 
   settlePan = (gestureState: PanResponderGestureState) => {
-    const wasOverridden = this.panGestureOverridden;
     const anchor = this.gestureAnchor;
+    // The anchor read never came back, so every move was skipped and the pages
+    // never left the transition this gesture took over. There is nothing to
+    // settle: the release has to resume that transition rather than measure
+    // itself against the index it was already heading to.
+    if (anchor === null) {
+      this.cancelPan();
+      return;
+    }
+
+    const wasOverridden = this.panGestureOverridden;
     this.endGesture();
     // An external index change already owns the transition; the end of the
     // gesture must not settle on top of it.
     if (wasOverridden) return;
-    const currentIdx = this.currentIndex;
     const containerSize = this.getCurrentContainerSize();
     if (containerSize === 0) {
       this.setState({
@@ -455,35 +489,39 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
     const clampToPages = (index: number) =>
       Math.max(0, Math.min(childCount - 1, index));
 
-    // The page the drag started on. It is the current index for a gesture that
-    // began at rest, and the nearer of the two pages on screen for one that
-    // took over a running transition.
-    const fromIdx = clampToPages(Math.round(anchor ?? currentIdx));
+    const progress = clampToPages(anchor + offset);
+    const goingNext = velocity > VELOCITY_THRESHOLD || offset > SWIPE_THRESHOLD;
+    const goingPrev =
+      velocity < -VELOCITY_THRESHOLD || offset < -SWIPE_THRESHOLD;
+    const held = this.heldTransitionPair(this.state, progress);
+    const lower = held ? Math.min(held.from, held.to) : Math.floor(progress);
+    const upper = held ? Math.max(held.from, held.to) : Math.ceil(progress);
 
-    let targetIdx = fromIdx;
-    const canGoNext = fromIdx < childCount - 1;
-    const canGoPrev = fromIdx > 0;
+    let targetIdx: number;
+    if (held) {
+      // A held pair positions its own two pages and nothing in between, so the
+      // release picks one of its ends: the one it was flicked towards, or the
+      // one the transition was already heading to when nothing decided it.
+      targetIdx = goingNext ? upper : goingPrev ? lower : held.to;
+    } else {
+      // The page the drag started on. It is the current index for a gesture
+      // that began at rest, and the nearer of the two pages on screen for one
+      // that took over a running transition.
+      const fromIdx = clampToPages(Math.round(anchor));
 
-    if (
-      canGoNext &&
-      (velocity > VELOCITY_THRESHOLD || offset > SWIPE_THRESHOLD)
-    ) {
-      targetIdx = fromIdx + 1;
-    } else if (
-      canGoPrev &&
-      (velocity < -VELOCITY_THRESHOLD || offset < -SWIPE_THRESHOLD)
-    ) {
-      targetIdx = fromIdx - 1;
+      targetIdx = fromIdx;
+      if (goingNext && fromIdx < childCount - 1) {
+        targetIdx = fromIdx + 1;
+      } else if (goingPrev && fromIdx > 0) {
+        targetIdx = fromIdx - 1;
+      }
+
+      // Only the two pages the progress sits between are positioned against
+      // each other, so the settle cannot reach past them.
+      targetIdx = Math.max(lower, Math.min(upper, targetIdx));
     }
 
-    // Only the two pages the progress sits between are positioned against each
-    // other, so the settle cannot reach past them.
-    const progress = clampToPages((anchor ?? currentIdx) + offset);
-    const lower = Math.floor(progress);
-    const upper = Math.ceil(progress);
-    targetIdx = Math.max(lower, Math.min(upper, targetIdx));
-
-    const previousIdx = currentIdx;
+    const previousIdx = this.currentIndex;
     this.currentIndex = targetIdx;
 
     // [Aborted Swipe] The page the settle moves away from - the previewed one

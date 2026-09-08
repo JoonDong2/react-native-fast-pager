@@ -20,3 +20,25 @@
 - [x] `yarn test`
 - [x] `yarn typecheck`
 - [x] `yarn lint`
+
+---
+
+# 체크리스트 — 인계 드래그 잔여 결함 (2026-09-08)
+
+## 배경
+- ultrareview가 `FastPager`의 전환 인계 경로에서 확정 결함 2건을 보고.
+- 결함 1(신규): 여러 페이지를 건너뛰는 전환을 드래그가 인계하면 첫 move에서 쌍이 재계산돼 목적지 페이지가 사라지고 중간 페이지가 튀어 들어옴.
+- 결함 2(기존): anchor 비동기 읽기가 도착하기 전에 손을 떼면 `settlePan`이 `currentIndex`로 대체해 화면과 무관한 페이지를 커밋.
+
+## 작업
+- [x] `heldTransitionPair` — 인계한 전환의 두 끝 사이에 progress가 있는 동안 쌍을 유지
+- [x] `syncDragParticipants` — 쌍이 유지되는 구간에서는 상태를 건드리지 않음
+- [x] `settlePan` — 유지된 쌍에서는 두 끝 중 하나로만 커밋 (플릭 방향, 없으면 원래 목적지)
+- [x] `settlePan` — anchor 미도착 시 `cancelPan`에 위임 (추측 대체 제거)
+- [x] 테스트 3개 추가 (인계 직후 위치 유지, 무결정 release, anchor 미도착 release)
+
+## 검증
+- [x] `yarn test` (35 passed)
+- [x] `yarn typecheck`
+- [x] `yarn lint`
+- [x] 수정 전 소스에서 새 테스트 3개가 모두 실패하는지 확인

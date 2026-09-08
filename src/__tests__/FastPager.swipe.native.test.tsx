@@ -239,6 +239,23 @@ describe('FastPager swipe gestures under external state changes', () => {
   const progressValue = () =>
     (pagerRef.current!.progress as InspectableAnimatedValue).__getValue();
 
+  // The native driver owns the progress while a transition runs; setting it
+  // here stands in for the frames that pass before the finger lands.
+  const advanceProgressTo = (value: number) => {
+    act(() => {
+      (pagerRef.current!.progress as Animated.Value).setValue(value);
+    });
+  };
+
+  // The anchor a drag continues from is read back from the native side
+  // asynchronously. Swallowing the read leaves the gesture without one, the
+  // way a release that beats it does.
+  const holdAnchorRead = () => {
+    jest
+      .spyOn(pagerRef.current!.progress as Animated.Value, 'stopAnimation')
+      .mockImplementation(() => {});
+  };
+
   const expectPage = (
     itemIndex: number,
     activityState: number,
@@ -364,6 +381,76 @@ describe('FastPager swipe gestures under external state changes', () => {
     releaseSwipe(-60, -1);
     expect(springs.at(-1)!.targetProgress).toBe(2);
     expect(onIndexChange.mock.calls).toEqual([[1], [2]]);
+  });
+
+  it('keeps the pages in place when a drag takes over a multi-page transition', () => {
+    mount(0);
+
+    act(() => {
+      pagerRef.current!.goTo(2);
+    });
+    // Halfway through 0 -> 2 the two pages on screen are that transition's own
+    // ends, stretched across one screen of travel
+    advanceProgressTo(1);
+    expectPage(0, ActivityState.PARTIAL_ACTIVE, 0.5);
+    expectPage(2, ActivityState.FULL_ACTIVE, 1.5);
+
+    // Grabbing it may not swap the destination out for a neighbour of the
+    // progress, which would drop page 2 and pull page 1 in from off screen
+    beginSwipe(25);
+    moveSwipe(30);
+    expect(progressValue()).toBeCloseTo(0.7);
+    expectPage(0, ActivityState.PARTIAL_ACTIVE, 0.65);
+    expectPage(2, ActivityState.FULL_ACTIVE, 1.65);
+
+    releaseSwipe(30, 1);
+    expect(springs.at(-1)!.targetProgress).toBe(0);
+    expect(onIndexChange.mock.calls).toEqual([[0]]);
+  });
+
+  it('continues to the destination when a drag over a multi-page transition decides nothing', () => {
+    mount(0);
+
+    act(() => {
+      pagerRef.current!.goTo(2);
+    });
+    advanceProgressTo(1);
+
+    beginSwipe(25);
+    moveSwipe(10);
+    releaseSwipe(10, 0);
+
+    // Page 1 was never positioned, so the settle cannot stop there
+    expect(springs.at(-1)!.targetProgress).toBe(2);
+    expect(onIndexChange).not.toHaveBeenCalled();
+
+    finishLatestSpring();
+    expect(onIndexChange.mock.calls).toEqual([[2]]);
+    expectPage(2, ActivityState.FULL_ACTIVE, 1);
+  });
+
+  it('resumes the transition when the gesture ends before the anchor read lands', () => {
+    mount(0);
+
+    beginSwipe(-30);
+    moveSwipe(-60);
+    releaseSwipe(-60, -1);
+    expect(onIndexChange.mock.calls).toEqual([[1]]);
+    expect(progressValue()).toBeCloseTo(0.6);
+
+    // A flick that grabs the settle and lets go before the anchor comes back
+    // never moved a page, so it never picked one either
+    holdAnchorRead();
+    beginSwipe(-25);
+    moveSwipe(-30);
+    expect(progressValue()).toBeCloseTo(0.6);
+
+    releaseSwipe(-60, -1);
+    expect(springs.at(-1)!.targetProgress).toBe(1);
+    expect(onIndexChange.mock.calls).toEqual([[1]]);
+
+    finishLatestSpring();
+    expectPage(1, ActivityState.FULL_ACTIVE, 1);
   });
 
   it('leaves a running settle alone when the swipe is rejected at a boundary', () => {
