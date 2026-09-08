@@ -58,7 +58,7 @@
 - [x] 테스트 `FastPager.mount.native.test.tsx` 추가 (기본 lazy, `lazy={false}`, 측정 전 보류, `keepAlive` 우선, index 이동)
 - [x] 테스트 `PagerItem.native.test.tsx` 갱신 (비활성 페이지가 한 번 마운트된 뒤 동결 / 측정 전에는 미렌더)
 - [x] README.md, docs/README.ko.md — 동결의 라이프사이클 계약과 `lazy`의 측정 대기 명시
-- [ ] 리뷰 2번(terminate 시 스냅백) 정책 결정 후 반영
+- [x] 리뷰 2번(terminate 시 스냅백) — 현행 동작 유지로 결정. README 양쪽에 iOS 강탈 한계와 앱 쪽 레버를 문서화
 
 ## 검증
 - [x] `yarn test` (41 passed)

@@ -132,13 +132,32 @@ function App() {
 
 With `useNativeDriver: true` and the standard `[{ nativeEvent: { progress } }]` mapping, the pager drives the mapped `Animated.Value` directly with its native-driver animations, so transition frames never cross the JS thread. Everything reading that value must stay native-driver compatible (transforms, opacity), and the value should not be animated from anywhere else. With `useNativeDriver: false` or a plain callback, updates are delivered from JavaScript on every frame.
 
+## Gestures
+
+The pager owns a swipe from the moment it reads a direction out of the touch, and it refuses to hand that touch back: `onPanResponderTerminationRequest` returns `false` and `onShouldBlockNativeResponder` returns `true`. On Android that is enough. The pan handlers sit on a plain `View`, and `ReactViewGroup` implements the intercepting behaviour React Native's `JSResponderHandler` needs, so native descendants stop receiving the touch.
+
+On iOS `blockNativeResponder` is dropped. The legacy renderer takes the argument as `__unused` (`RCTUIManager.mm`), and on Fabric `RCTMountingManager` receives it but never forwards it past `setIsJSResponder:`. A native gesture recognizer, usually an enclosing or nested scroll view, can therefore take the touch away while the finger is still down. React Native reports that as `onPanResponderTerminate`.
+
+A terminated gesture never picked a page, so the pager returns to the page it is on. It does not commit the swipe and does not call `onIndexChange`. Committing on the last known offset and velocity instead would turn the page before the user let go, because a velocity sampled mid-drag does not differ from a flick.
+
+The library cannot prevent the handoff. When a specific scrollable competes with the pager on iOS, turn it off for the duration of the swipe:
+
+```tsx
+<FastPager
+  onSwipeStart={() => setScrollEnabled(false)}
+  onSwipeEnd={() => setScrollEnabled(true)}
+>
+```
+
+`react-native-gesture-handler`'s `blocksExternalGesture` is the other lever when the competing gesture is itself a `GestureDetector`.
+
 ## Props
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `children` | `PagerItemType[]` | *required* | Pages to transition between. ReactElement or render function. |
 | `index` | `number` | `0` | Currently active page index. |
-| `onIndexChange` | `(index: number) => void` | - | Called when a swipe picks a different page, on finger-up, before the settle animation runs. Not called for a snap-back, for a gesture the platform terminates, or for `index` prop changes. `goTo` is reported once it lands. |
+| `onIndexChange` | `(index: number) => void` | - | Called when a swipe picks a different page, on finger-up, before the settle animation runs. Not called for a snap-back, for a gesture the platform terminates (see [Gestures](#gestures)), or for `index` prop changes. `goTo` is reported once it lands. |
 | `onProgressChange` | `(event: { nativeEvent: { progress: number } }) => void` | - | Called as animated progress changes. Compatible with `Animated.event([{ nativeEvent: { progress } }])`; with `useNativeDriver: true` the mapped value is driven natively. |
 | `renderMode` | `'view' \| 'native'` | `'native'` | Set to `'native'` to use the native `ScreenContainer` implementation. |
 | `animationType` | `'slide' \| 'fade' \| 'fade-slide' \| 'none'` | `'slide'` | Transition animation type. |

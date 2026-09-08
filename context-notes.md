@@ -64,3 +64,9 @@
 - `a568de7`("측정 전 레이아웃 금지")과 충돌하지 않도록 `containerSize === 0`인 동안은 동결을 유지한다. 측정이 끝나면 한 번 렌더하고, 그 커밋의 effect에서 `hasRenderedContent`를 올려 다음 커밋부터 동결한다. lazy 경로는 애초에 마운트돼야 할 때만 렌더되고 그 시점의 activityState가 INACTIVE가 아니라서 이 우회로를 타지 않는다.
 - 비용: `lazy={false}` 페이지는 마운트 직후 곧바로 동결되므로 layout effect와 클래스 `componentWillUnmount`를 한 번 왕복한다. `useEffect`와 state는 살아남는다(React 19.1 실측: 동결 시 `layout-cleanup` + `class-willUnmount`만, 해제 시 `layout-effect` + `class-didMount`만). 데이터 페칭을 미리 띄우려는 `lazy={false}`의 본래 목적은 그대로 달성된다.
 - `FastPager`의 `itemFreeze`는 같은 의도를 `swipeEnabled !== false && mountsLazily && !mountedIndices.has(i)`라는 조건으로 부분적으로만 표현하고 있었다. lazy 경로에서 `renderIndices`에는 있는데 `mountedIndices`에는 없는 페이지는 항상 참여자(FULL/PARTIAL_ACTIVE)라 조건이 성립할 일이 없어 사실상 죽은 코드였다. 규칙이 두 군데로 갈라지는 걸 피하려고 지웠다.
+
+## terminate 정책은 유지하고 문서로 옮김 (2026-09-09 추가)
+- 리뷰가 "임계값을 넘겨 끌었는데 강탈당하면 스와이프가 버려진다"를 지적했지만, 커밋 `9f94000`의 결정(강제 종료는 커밋하지 않음)을 그대로 두기로 했다. 검토한 대안은 terminate 경로에서 속도 조건을 빼고 변위 조건만 보는 것이었다.
+- iOS 근거를 RN 소스에서 다시 확인했고, `context-notes.md:13`보다 한 단계 구체적이다. Fabric은 `setIsJSResponder`를 구현하기는 한다. 다만 `React/Fabric/Mounting/RCTMountingManager.mm:273-282`가 `blockNativeResponder`를 인자로 받고도 `[componentView setIsJSResponder:isJSResponder]`만 호출해 그 값을 버린다. 레거시도 `React/Modules/RCTUIManager.mm:1492`에서 `__unused BOOL blockNativeResponder`다. Bridgeless의 `BridgelessUIManager.js:150`은 `setJSResponder`에 `raiseSoftError`를 건다. 즉 iOS는 두 아키텍처 모두 차단 플래그를 버린다.
+- 그래서 강탈은 라이브러리에서 막을 수 없고, 남는 선택은 "마지막으로 알려진 상태로 커밋" 대 "원래 페이지로 복귀"뿐이다. 전자는 손을 떼지 않았는데 페이지가 넘어가는 문제(2026-08-09 이슈 1)로 되돌아간다.
+- README.md와 docs/README.ko.md에 `## Gestures` / `## 제스처` 섹션을 추가해 이 한계와 앱 쪽 레버(`onSwipeStart`에서 경쟁 스크롤 뷰 `scrollEnabled=false`, RNGH `blocksExternalGesture`)를 명시했다. `onIndexChange` 행에서 이 섹션으로 링크한다.

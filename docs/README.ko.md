@@ -132,13 +132,32 @@ function App() {
 
 `useNativeDriver: true`에 표준 `[{ nativeEvent: { progress } }]` 매핑을 사용하면 pager가 매핑된 `Animated.Value`를 native driver 애니메이션으로 직접 구동하므로, 전환 프레임이 JS 스레드를 거치지 않습니다. 이 값을 읽는 곳은 native driver 호환(transform, opacity)이어야 하고, 다른 곳에서 이 값을 애니메이션하면 안 됩니다. `useNativeDriver: false` 또는 일반 콜백은 매 프레임 JavaScript에서 값을 전달합니다.
 
+## 제스처
+
+pager는 터치에서 방향을 읽어낸 순간부터 스와이프를 소유하고, 그 터치를 돌려주지 않습니다. `onPanResponderTerminationRequest`가 `false`를, `onShouldBlockNativeResponder`가 `true`를 반환합니다. 안드로이드에서는 이것으로 충분합니다. 팬 핸들러가 plain `View` 위에 있고, `ReactViewGroup`이 React Native의 `JSResponderHandler`가 요구하는 인터셉트 동작을 구현하므로 네이티브 자손이 터치를 더 받지 않습니다.
+
+iOS에서는 `blockNativeResponder`가 버려집니다. 레거시 렌더러는 이 인자를 `__unused`로 받고(`RCTUIManager.mm`), Fabric의 `RCTMountingManager`는 인자로 받기는 하지만 `setIsJSResponder:` 너머로 전달하지 않습니다. 그래서 바깥이나 안쪽의 스크롤 뷰 같은 네이티브 제스처 인식기가 손가락이 화면에 있는 상태에서 터치를 가져갈 수 있습니다. React Native는 이를 `onPanResponderTerminate`로 알립니다.
+
+강제 종료된 제스처는 페이지를 고른 적이 없으므로 pager는 원래 페이지로 돌아갑니다. 스와이프를 커밋하지 않고 `onIndexChange`도 호출하지 않습니다. 마지막으로 알려진 거리와 속도로 커밋하면 사용자가 손을 떼기 전에 페이지가 넘어갑니다. 드래그 도중에 샘플링된 속도는 플릭과 구분되지 않기 때문입니다.
+
+강탈 자체는 라이브러리에서 막을 수 없습니다. iOS에서 특정 스크롤 뷰가 pager와 경쟁한다면 스와이프가 진행되는 동안 그 뷰를 꺼두세요.
+
+```tsx
+<FastPager
+  onSwipeStart={() => setScrollEnabled(false)}
+  onSwipeEnd={() => setScrollEnabled(true)}
+>
+```
+
+경쟁하는 제스처가 `GestureDetector`라면 `react-native-gesture-handler`의 `blocksExternalGesture`가 다른 레버입니다.
+
 ## Props
 
 | Prop | Type | Default | 설명 |
 |---|---|---|---|
 | `children` | `PagerItemType[]` | *필수* | 전환할 페이지 목록. ReactElement 또는 render function. |
 | `index` | `number` | `0` | 현재 활성 페이지의 인덱스. |
-| `onIndexChange` | `(index: number) => void` | - | 스와이프가 다른 페이지를 선택하면 손을 뗀 시점에, settle 애니메이션 전에 호출됩니다. 원래 페이지로 돌아가거나, 제스처가 강제 종료되거나, `index` prop으로 이동한 경우에는 호출되지 않습니다. `goTo`는 이동이 끝난 뒤에 보고합니다. |
+| `onIndexChange` | `(index: number) => void` | - | 스와이프가 다른 페이지를 선택하면 손을 뗀 시점에, settle 애니메이션 전에 호출됩니다. 원래 페이지로 돌아가거나, 제스처가 강제 종료되거나([제스처](#제스처) 참고), `index` prop으로 이동한 경우에는 호출되지 않습니다. `goTo`는 이동이 끝난 뒤에 보고합니다. |
 | `onProgressChange` | `(event: { nativeEvent: { progress: number } }) => void` | - | animated progress가 변경될 때 호출됩니다. `Animated.event([{ nativeEvent: { progress } }])`와 함께 사용할 수 있으며, `useNativeDriver: true`면 매핑된 값을 네이티브에서 직접 구동합니다. |
 | `renderMode` | `'view' \| 'native'` | `'native'` | `'native'`로 설정하면 네이티브 `ScreenContainer` 구현을 사용합니다. |
 | `animationType` | `'slide' \| 'fade' \| 'fade-slide' \| 'none'` | `'slide'` | 전환 애니메이션 종류. |
