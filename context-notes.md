@@ -54,3 +54,13 @@
 
 ## 스프링 파라미터는 건드리지 않음
 - ζ=0.6, ω₀=10이면 첫 오버슈트가 0.39초에 9.5%, 시각적 정착까지 0.6~0.8초다. 느리고 탄력 있는 편이지만 이번 요청 범위 밖이라 유지했다. 보고 시점을 release로 옮겨 체감 지연은 사라진다.
+
+## `lazy={false}`가 무효였던 이유 (2026-09-09 추가)
+- 실측(자식 3개, 마운트되는 페이지). 0.1.18 기본값 `[a, b, c]`, 1.0.6 기본값 `[a]`, 1.0.6 `lazy={false}` `[a]`, 1.0.6 `lazy={false} freeze={false}` `[a, b, c]`. `renderMode="view"`도 동일.
+- 원인은 react-freeze 1.0.4의 `Suspender`다. `freeze`가 true면 children을 렌더하기 **전에** thenable을 던진다. 그래서 `<Freeze freeze>`로 태어난 서브트리는 "동결"이 아니라 "존재하지 않음"이다.
+- `lazy={false}`는 `mountedIndices`를 전체로 채우고 `getRenderIndices`도 전체를 반환하지만, 활성 페이지를 뺀 나머지는 INACTIVE라 `shouldFreeze`가 true가 되고 결국 한 번도 마운트되지 않았다.
+- 0.1.18에서 같은 조합이 문제가 아니었던 건 동결이 **실제로 일어나지 않았기 때문**이다. 네이티브 모드는 `<AnimatedScreen shouldFreeze={...}>`만 넘겼고, RNS는 `freezeOnBlur = freezeEnabled()`를 하드 AND 게이트로 쓴다(`core.ts`의 `ENABLE_FREEZE = false`). `enableFreeze()`를 부르지 않으면 그 값은 무시된다. 0.1.18의 eager는 동결이 무효인 위에 서 있던 동작이다.
+- 수정 원칙: **동결은 존재하는 페이지를 멈추는 수단이지, 페이지가 생기는 것을 막는 수단이 아니다.** 그래서 `PagerItem`이 한 번도 렌더된 적 없는 콘텐츠는 동결하지 않는다(`hasRenderedContent`).
+- `a568de7`("측정 전 레이아웃 금지")과 충돌하지 않도록 `containerSize === 0`인 동안은 동결을 유지한다. 측정이 끝나면 한 번 렌더하고, 그 커밋의 effect에서 `hasRenderedContent`를 올려 다음 커밋부터 동결한다. lazy 경로는 애초에 마운트돼야 할 때만 렌더되고 그 시점의 activityState가 INACTIVE가 아니라서 이 우회로를 타지 않는다.
+- 비용: `lazy={false}` 페이지는 마운트 직후 곧바로 동결되므로 layout effect와 클래스 `componentWillUnmount`를 한 번 왕복한다. `useEffect`와 state는 살아남는다(React 19.1 실측: 동결 시 `layout-cleanup` + `class-willUnmount`만, 해제 시 `layout-effect` + `class-didMount`만). 데이터 페칭을 미리 띄우려는 `lazy={false}`의 본래 목적은 그대로 달성된다.
+- `FastPager`의 `itemFreeze`는 같은 의도를 `swipeEnabled !== false && mountsLazily && !mountedIndices.has(i)`라는 조건으로 부분적으로만 표현하고 있었다. lazy 경로에서 `renderIndices`에는 있는데 `mountedIndices`에는 없는 페이지는 항상 참여자(FULL/PARTIAL_ACTIVE)라 조건이 성립할 일이 없어 사실상 죽은 코드였다. 규칙이 두 군데로 갈라지는 걸 피하려고 지웠다.

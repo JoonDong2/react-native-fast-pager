@@ -20,6 +20,8 @@ Each child page is assigned an `activityState`:
 
 This prevents unnecessary re-renders of off-screen children and reduces native view hierarchy overhead.
 
+`react-freeze` hides a frozen subtree behind Suspense, so going inactive is a lifecycle event: React destroys the page's layout effects and calls `componentWillUnmount` on its class components, then runs both again when the page comes back. Component state and passive effects (`useEffect`) survive. Freezing only stops a page that is already mounted, so it never keeps one from mounting: a page rendered up front by `lazy={false}` mounts once and is frozen from the next commit. Pass `freeze={false}` to keep inactive pages live.
+
 ### FlatList Integration
 
 The `FastPager` component can be used as a FlatList item, making it easy to build tab-based UIs with sticky headers. See the [example](example/src/App.tsx).
@@ -143,8 +145,8 @@ With `useNativeDriver: true` and the standard `[{ nativeEvent: { progress } }]` 
 | `swipeEnabled` | `boolean` | `true` | Whether swipe gestures are enabled. |
 | `vertical` | `boolean` | `false` | Set to `true` to transition vertically. |
 | `keepAlive` | `number` | `undefined` (unlimited) | Maximum number of pages to keep mounted. Used for memory optimization. |
-| `lazy` | `boolean` | `true` | Mount a page when it is first visited instead of on the first render. Set to `false` to mount every page up front (ignored when `keepAlive` is set). Mounted pages stay mounted unless `keepAlive` limits them. |
-| `freeze` | `boolean` | `true` | Whether to apply `react-freeze` to inactive pages. |
+| `lazy` | `boolean` | `true` | Mount a page when it is first visited instead of on the first render. Set to `false` to mount every page up front (ignored when `keepAlive` is set); pages parked off screen mount once the container has been measured. Mounted pages stay mounted unless `keepAlive` limits them. |
+| `freeze` | `boolean` | `true` | Whether to apply `react-freeze` to inactive pages. See [Rendering Optimization](#rendering-optimization) for what freezing does to a page's lifecycle. |
 | `layout` | `{ width?: number; height?: number }` | - | Manually specify container size. Auto-measured via `onLayout` if not provided. |
 | `style` | `StyleProp<ViewStyle>` | - | Container style. |
 | `onSwipeStart` | `() => void` | - | Called when a swipe gesture starts. |

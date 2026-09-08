@@ -20,6 +20,8 @@ React Native을 위한 스와이프 가능한 화면 전환 컴포넌트입니�
 
 이 방식으로 현재 보이지 않는 화면의 불필요한 리렌더링을 방지하고, 네이티브 뷰 계층의 부하를 줄입니다.
 
+`react-freeze`는 동결된 서브트리를 Suspense 뒤로 숨기므로, 페이지가 비활성으로 바뀌는 것은 라이프사이클 이벤트입니다. React가 그 페이지의 layout effect를 정리하고 클래스 컴포넌트의 `componentWillUnmount`를 호출하며, 다시 보일 때 둘 다 재실행합니다. 컴포넌트 state와 `useEffect`는 그대로 유지됩니다. 동결은 이미 마운트된 페이지를 멈추는 것이므로 마운트 자체를 막지 않습니다. `lazy={false}`로 미리 렌더되는 페이지는 한 번 마운트된 뒤 다음 커밋부터 동결됩니다. 비활성 페이지를 계속 살려두려면 `freeze={false}`를 지정하세요.
+
 ### FlatList 연동
 
 `FastPager` 컴포넌트는 FlatList의 아이템으로 사용할 수 있어, stickyHeader와 함께 탭 기반 UI를 쉽게 구현할 수 있습니다. [example](../example/src/App.tsx)을 참고하세요.
@@ -143,8 +145,8 @@ function App() {
 | `swipeEnabled` | `boolean` | `true` | 스와이프 제스처 활성화 여부. |
 | `vertical` | `boolean` | `false` | `true`로 설정하면 세로 방향으로 전환합니다. |
 | `keepAlive` | `number` | `undefined` (무제한) | 마운트 상태를 유지할 최대 페이지 수. 메모리 최적화에 사용합니다. |
-| `lazy` | `boolean` | `true` | 페이지를 처음 방문할 때(스와이프로 향하거나 `index`/`goTo`로 지정될 때) 마운트합니다. `false`면 모든 페이지를 처음부터 마운트합니다(`keepAlive` 지정 시에는 무시). 마운트된 페이지는 `keepAlive`로 제한하지 않는 한 유지됩니다. |
-| `freeze` | `boolean` | `true` | 비활성 페이지에 `react-freeze`를 적용할지 여부. |
+| `lazy` | `boolean` | `true` | 페이지를 처음 방문할 때(스와이프로 향하거나 `index`/`goTo`로 지정될 때) 마운트합니다. `false`면 모든 페이지를 처음부터 마운트합니다(`keepAlive` 지정 시에는 무시). 화면 밖에 주차된 페이지는 컨테이너가 측정된 뒤에 마운트됩니다. 마운트된 페이지는 `keepAlive`로 제한하지 않는 한 유지됩니다. |
+| `freeze` | `boolean` | `true` | 비활성 페이지에 `react-freeze`를 적용할지 여부. 동결이 페이지 라이프사이클에 미치는 영향은 [렌더링 최적화](#렌더링-최적화)를 참고하세요. |
 | `layout` | `{ width?: number; height?: number }` | - | 컨테이너 크기를 직접 지정합니다. 미지정 시 `onLayout`으로 자동 측정됩니다. |
 | `style` | `StyleProp<ViewStyle>` | - | 컨테이너 스타일. |
 | `onSwipeStart` | `() => void` | - | 스와이프 제스처가 시작될 때 호출됩니다. |

@@ -42,3 +42,26 @@
 - [x] `yarn typecheck`
 - [x] `yarn lint`
 - [x] 수정 전 소스에서 새 테스트 3개가 모두 실패하는지 확인
+
+---
+
+# 체크리스트 — `lazy={false}`가 실제로 마운트하도록 (2026-09-09)
+
+## 배경
+- 앱에서 0.1.18 → 1.0.6으로 올린 뒤 받은 리뷰. 기본값이 eager → lazy로 바뀌어 탭 첫 진입에 로딩 중 오상태가 노출된다는 지적.
+- 리뷰가 제시한 해법 `lazy={false}`를 실제로 걸어보니 무효였다. `README.md:146`의 "mount every page up front"가 거짓인 상태.
+- 원인: `freeze`가 첫 렌더부터 켜지면 react-freeze가 children을 렌더하기 전에 suspend하므로 서브트리가 아예 마운트되지 않는다.
+
+## 작업
+- [x] `PagerItem` — 한 번도 렌더된 적 없는 콘텐츠는 동결하지 않음. 컨테이너 측정 후 한 번 렌더하고 다음 커밋부터 동결
+- [x] `FastPager` — 같은 의도를 부분적으로만 표현하던 `itemFreeze` 제거 (`PagerItem` 쪽 규칙이 대체)
+- [x] 테스트 `FastPager.mount.native.test.tsx` 추가 (기본 lazy, `lazy={false}`, 측정 전 보류, `keepAlive` 우선, index 이동)
+- [x] 테스트 `PagerItem.native.test.tsx` 갱신 (비활성 페이지가 한 번 마운트된 뒤 동결 / 측정 전에는 미렌더)
+- [x] README.md, docs/README.ko.md — 동결의 라이프사이클 계약과 `lazy`의 측정 대기 명시
+- [ ] 리뷰 2번(terminate 시 스냅백) 정책 결정 후 반영
+
+## 검증
+- [x] `yarn test` (41 passed)
+- [x] `yarn typecheck`
+- [x] `yarn lint`
+- [x] 수정 전 소스에서 새 테스트 3개가 실패하는지 확인

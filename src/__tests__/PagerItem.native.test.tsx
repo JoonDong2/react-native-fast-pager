@@ -164,22 +164,34 @@ describe('PagerItem native rendering', () => {
     expect(readTranslation(target, 'translateX')).toBe(0);
   });
 
-  it('keeps an inactive native page detached and frozen', () => {
+  it('keeps an inactive native page detached, mounted once and frozen', () => {
+    let renders = 0;
+    let mounts = 0;
+    const Content = () => {
+      renders += 1;
+      React.useEffect(() => {
+        mounts += 1;
+      }, []);
+      return <View testID="inactive" />;
+    };
+
+    const item = (containerSize: number) => (
+      <PagerItem
+        position={2}
+        isLayoutOwner={false}
+        containerSize={containerSize}
+        animationType="slide"
+        activityState={ActivityState.INACTIVE}
+        priority={0}
+        useNativeScreens
+        freeze
+      >
+        <Content />
+      </PagerItem>
+    );
+
     act(() => {
-      renderer = create(
-        <PagerItem
-          position={2}
-          isLayoutOwner={false}
-          containerSize={100}
-          animationType="slide"
-          activityState={ActivityState.INACTIVE}
-          priority={0}
-          useNativeScreens
-          freeze
-        >
-          <View testID="inactive" />
-        </PagerItem>
-      );
+      renderer = create(item(100));
     });
 
     const inactive = getNativeScreens(renderer)[0];
@@ -190,11 +202,46 @@ describe('PagerItem native rendering', () => {
     expect(inactive!.props.pointerEvents).toBe('none');
     expect(readPositionStyle(inactive!)).toBe('absolute');
     expect(readTranslation(inactive!, 'translateX')).toBe(100);
-    // A page that has never been shown keeps its content unrendered, so it
-    // cannot be laid out at a container size that is not settled yet.
-    expect(
-      inactive!.findAll((node) => node.props?.testID === 'inactive')
-    ).toHaveLength(0);
+    // Freeze stops a page that exists; it must not keep one from existing, or
+    // a page rendered up front would never mount at all.
+    expect(renders).toBe(1);
+    expect(mounts).toBe(1);
+
+    // From the next commit on the page is frozen, so it stops re-rendering.
+    act(() => {
+      renderer.update(item(120));
+    });
+    expect(renders).toBe(1);
+  });
+
+  it('leaves an inactive page unrendered until the container is measured', () => {
+    let renders = 0;
+
+    const Content = () => {
+      renders += 1;
+      return <View testID="unmeasured-inactive" />;
+    };
+
+    act(() => {
+      renderer = create(
+        <PagerItem
+          position={2}
+          isLayoutOwner={false}
+          containerSize={0}
+          animationType="slide"
+          activityState={ActivityState.INACTIVE}
+          priority={0}
+          useNativeScreens
+          freeze
+        >
+          <Content />
+        </PagerItem>
+      );
+    });
+
+    // A page that has never been shown cannot be laid out at a container size
+    // that is not settled yet.
+    expect(renders).toBe(0);
   });
 
   it('keeps reverse vertical 2 -> 0 positions symmetric', () => {

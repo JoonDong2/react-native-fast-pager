@@ -1246,7 +1246,6 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       freeze = true,
     } = this.props;
 
-    const { mountedIndices } = this.state;
     const containerSize = this.getCurrentContainerSize();
     const renderIndices = this.getRenderIndices();
     const layoutOwnerIndex = this.getLayoutOwnerIndex();
@@ -1280,15 +1279,6 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
             .map((i) => {
               const activityState = this.getActivityState(i);
 
-              // Check if this child has never been mounted
-              const isUnmounted =
-                mountsLazily(this.props) && !mountedIndices.has(i);
-              // If swipeEnabled and never mounted, disable freeze to allow initial render
-              const itemFreeze =
-                this.props.swipeEnabled !== false && isUnmounted
-                  ? false
-                  : freeze;
-
               return (
                 <PagerItem
                   key={i}
@@ -1300,7 +1290,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
                   animationType={animationType || 'slide'}
                   priority={activityState}
                   useNativeScreens={useNativeScreens}
-                  freeze={itemFreeze}
+                  freeze={freeze}
                 >
                   {children[i]!}
                 </PagerItem>

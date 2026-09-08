@@ -1,4 +1,4 @@
-import { isValidElement, memo, useMemo } from 'react';
+import { isValidElement, memo, useEffect, useMemo, useState } from 'react';
 import { Animated } from 'react-native';
 import { Screen } from 'react-native-screens';
 import { Freeze } from 'react-freeze';
@@ -85,7 +85,25 @@ export const PagerItem = memo(
     // Freeze only fully inactive pages. react-freeze hides frozen subtrees
     // via Suspense (display: none), so freezing PARTIAL_ACTIVE pages would
     // hide swipe previews and transition targets while they are moving.
-    const shouldFreeze = freeze && activityState === ActivityState.INACTIVE;
+    const wantsFreeze = freeze && activityState === ActivityState.INACTIVE;
+
+    // react-freeze suspends before it renders its children, so a page frozen
+    // on its very first render never mounts at all. Freezing is meant to stop
+    // a page that exists, not to keep one from existing: lazy mounting only
+    // renders a page once it should mount, but lazy={false} renders every page
+    // while all but the current one are INACTIVE, and freezing those from
+    // birth would leave them unmounted for good. Such a page renders its
+    // content once and is frozen from the next commit - and it waits for the
+    // container to be measured, so it still never lays out at a size that has
+    // not settled.
+    const [hasRenderedContent, setHasRenderedContent] = useState(!wantsFreeze);
+    const shouldFreeze =
+      wantsFreeze && (hasRenderedContent || containerSize === 0);
+
+    useEffect(() => {
+      if (shouldFreeze || hasRenderedContent) return;
+      setHasRenderedContent(true);
+    }, [shouldFreeze, hasRenderedContent]);
 
     if (useNativeScreens) {
       return (
