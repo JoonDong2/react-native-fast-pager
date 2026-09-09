@@ -86,3 +86,4 @@
 - [x] `yarn typecheck`
 - [x] `yarn lint`
 - [x] 기본값을 `true`로 되돌리면 새 테스트 2개가 실패하는지 확인
+- [x] `publish.yml` — 커밋 메시지에 `[minor]`가 있으면 minor 범프. 기본값 변경을 patch로 내보내지 않기 위해

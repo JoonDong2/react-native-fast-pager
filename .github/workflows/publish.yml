@@ -28,14 +28,25 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      # A push releases a patch. Put [minor] anywhere in one of the pushed
+      # commit messages to release a minor instead, which is what a change to
+      # documented behaviour needs: a prop default, a callback's timing, a
+      # new prop. The messages are read from the environment instead of being
+      # interpolated into the script, so a commit message cannot inject shell.
       - name: Bump version
+        env:
+          PUSHED_COMMIT_MESSAGES: ${{ toJSON(github.event.commits.*.message) }}
         run: |
           CURRENT_MAJOR=$(node -p "require('./package.json').version.split('.')[0]")
           if [ "$CURRENT_MAJOR" = "0" ]; then
-            npm version major -m 'chore: bump version to %s'
+            BUMP=major
+          elif printf '%s' "$PUSHED_COMMIT_MESSAGES" | grep -qF '[minor]'; then
+            BUMP=minor
           else
-            npm version patch -m 'chore: bump version to %s'
+            BUMP=patch
           fi
+          echo "Releasing a $BUMP bump"
+          npm version "$BUMP" -m 'chore: bump version to %s'
 
       - name: Build
         run: yarn prepare
