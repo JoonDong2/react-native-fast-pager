@@ -1243,7 +1243,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       style,
       animationType,
       vertical,
-      freeze = true,
+      freeze = false,
     } = this.props;
 
     const containerSize = this.getCurrentContainerSize();

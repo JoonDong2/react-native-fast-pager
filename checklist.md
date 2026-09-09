@@ -65,3 +65,24 @@
 - [x] `yarn typecheck`
 - [x] `yarn lint`
 - [x] 수정 전 소스에서 새 테스트 3개가 실패하는지 확인
+
+---
+
+# 체크리스트 — freeze 기본값 끄기와 위험성 문서화 (2026-09-09)
+
+## 배경
+- 1.0.7까지 `freeze` 기본값이 `true`였다. 0.1.18에서는 RNS 게이트 때문에 실효가 없었으므로, 업그레이드하는 앱 입장에서는 고지 없이 켜진 셈이었다.
+- 무거운 탭 컨텐츠를 매우 빠르게 전환할 때 크래시가 보고됐다.
+
+## 작업
+- [x] `FastPager`, `PagerItem` 기본값을 `false`로
+- [x] 기본값을 고정하는 테스트 2개 (기본값에서는 미측정 상태로도 전부 마운트 / 비활성 페이지가 계속 리렌더)
+- [x] `lazy={false}` 측정 대기 테스트는 `freeze`를 명시하도록 갱신
+- [x] README.md, docs/README.ko.md에 `### Freezing Inactive Pages`, `### 비활성 페이지 동결` 추가. 라이프사이클 계약, Fabric 비용 차이, 크래시 보고, 권고
+- [x] Props 표의 `freeze` 기본값과 설명 갱신
+
+## 검증
+- [x] `yarn test` (43 passed)
+- [x] `yarn typecheck`
+- [x] `yarn lint`
+- [x] 기본값을 `true`로 되돌리면 새 테스트 2개가 실패하는지 확인

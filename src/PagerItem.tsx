@@ -18,7 +18,7 @@ export const PagerItem = memo(
     vertical,
     containerSize,
     useNativeScreens = true,
-    freeze = true,
+    freeze = false,
   }: PagerItemProps) => {
     const diff = useMemo(() => Animated.subtract(position, 1), [position]);
 

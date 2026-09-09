@@ -101,10 +101,23 @@ describe('FastPager mounting', () => {
     expect(mounted).toEqual(['a', 'b', 'c']);
   });
 
-  it('holds pages back until the container has been measured', () => {
+  it('mounts pages up front before the container is measured', () => {
     act(() => {
       renderer = create(
         <FastPager index={0} lazy={false}>
+          {pages()}
+        </FastPager>
+      );
+    });
+
+    // freeze is off by default, so nothing holds the parked pages back.
+    expect(mounted).toEqual(['a', 'b', 'c']);
+  });
+
+  it('holds pages back until the container has been measured when frozen', () => {
+    act(() => {
+      renderer = create(
+        <FastPager index={0} lazy={false} freeze>
           {pages()}
         </FastPager>
       );
@@ -129,6 +142,55 @@ describe('FastPager mounting', () => {
     });
 
     expect(mounted).toEqual(['a']);
+  });
+
+  it('leaves inactive pages rendering by default and stops them when frozen', () => {
+    const renders: Record<string, number> = {};
+
+    const Counted = ({ name }: { name: string }) => {
+      renders[name] = (renders[name] ?? 0) + 1;
+      return <View testID={`page-${name}`} />;
+    };
+
+    const counted = () => [
+      <Counted key="a" name="a" />,
+      <Counted key="b" name="b" />,
+    ];
+    const byDefault = () => (
+      <FastPager index={0} lazy={false} layout={{ width: 100 }}>
+        {counted()}
+      </FastPager>
+    );
+    const frozen = () => (
+      <FastPager index={0} lazy={false} freeze layout={{ width: 100 }}>
+        {counted()}
+      </FastPager>
+    );
+
+    act(() => {
+      renderer = create(byDefault());
+    });
+    expect(renders.b).toBe(1);
+
+    act(() => {
+      renderer.update(byDefault());
+    });
+    expect(renders.b).toBe(2);
+
+    act(() => {
+      renderer.unmount();
+    });
+
+    renders.b = 0;
+    act(() => {
+      renderer = create(frozen());
+    });
+    expect(renders.b).toBe(1);
+
+    act(() => {
+      renderer.update(frozen());
+    });
+    expect(renders.b).toBe(1);
   });
 
   it('mounts a page the index prop moves to', () => {

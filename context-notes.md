@@ -70,3 +70,11 @@
 - iOS 근거를 RN 소스에서 다시 확인했고, `context-notes.md:13`보다 한 단계 구체적이다. Fabric은 `setIsJSResponder`를 구현하기는 한다. 다만 `React/Fabric/Mounting/RCTMountingManager.mm:273-282`가 `blockNativeResponder`를 인자로 받고도 `[componentView setIsJSResponder:isJSResponder]`만 호출해 그 값을 버린다. 레거시도 `React/Modules/RCTUIManager.mm:1492`에서 `__unused BOOL blockNativeResponder`다. Bridgeless의 `BridgelessUIManager.js:150`은 `setJSResponder`에 `raiseSoftError`를 건다. 즉 iOS는 두 아키텍처 모두 차단 플래그를 버린다.
 - 그래서 강탈은 라이브러리에서 막을 수 없고, 남는 선택은 "마지막으로 알려진 상태로 커밋" 대 "원래 페이지로 복귀"뿐이다. 전자는 손을 떼지 않았는데 페이지가 넘어가는 문제(2026-08-09 이슈 1)로 되돌아간다.
 - README.md와 docs/README.ko.md에 `## Gestures` / `## 제스처` 섹션을 추가해 이 한계와 앱 쪽 레버(`onSwipeStart`에서 경쟁 스크롤 뷰 `scrollEnabled=false`, RNGH `blocksExternalGesture`)를 명시했다. `onIndexChange` 행에서 이 섹션으로 링크한다.
+
+## freeze 기본값을 끔 (2026-09-09 추가)
+- 근거 1. 0.1.18에서는 RNS의 `freezeOnBlur = freezeEnabled()` 게이트 때문에 동결이 실제로 일어나지 않았다. 1.0.x가 `<Freeze>`로 그 게이트를 우회하면서 업그레이드하는 앱은 고지 없이 동결이 켜진 상태가 됐다. 기본값을 끄면 0.1.18의 실효 동작으로 돌아간다.
+- 근거 2. 무거운 탭 컨텐츠를 매우 빠르게 전환할 때 크래시가 보고됐다. 원인은 특정하지 못했고 재현 조건만 확인된 상태다.
+- 아키텍처별 비용 차이(README로 옮긴 내용). 구 아키텍처의 `hideInstance`는 `ReactNativeRenderer-dev.js:2146`에서 이미 마운트된 뷰에 `UIManager.updateView`로 `{style:{display:'none'}}`를 한 번 보낸다. Fabric은 persistent라 변형이 불가능해서 `cloneHiddenInstance`(`ReactFabric-dev.js:13796`)로 숨길 호스트 노드를 복제하고 `appendAllChildren`(`:8919`, `:8960`)이 부모의 자식 집합을 다시 만든다. 즉 동결과 해제마다 shadow tree 커밋과 메인 큐 마운트 트랜잭션이 생기고, `renderMode="native"`에서는 같은 커밋이 pager 전환과 screens의 attach/detach도 함께 나른다.
+- 미확인 단서. 같은 Fabric 경로에서 숨길 대상이 text instance(fiber tag 6)면 `throw Error("Not yet implemented.")`로 떨어진다. 다만 RN에서 문자열은 `<Text>` 호스트 아래에 놓이므로 이 경계에 직접 오기는 어렵다. 크래시 원인으로 단정하지 않았고 README에도 넣지 않았다.
+- `PagerItem`의 최초 마운트 보장(`hasRenderedContent`)은 그대로 둔다. `freeze`를 켜는 사용처에서 `lazy={false}`가 여전히 동작해야 하기 때문이다.
+- 배포 주의. `publish.yml`은 major가 1 이상이면 무조건 `npm version patch`다. 기본값 변경이 patch로 나가는 셈이라, semver를 맞추려면 워크플로를 손보거나 수동으로 minor를 올려야 한다.

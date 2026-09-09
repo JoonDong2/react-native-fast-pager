@@ -16,11 +16,23 @@ Each child page is assigned an `activityState`:
 |---|---|---|
 | `2` | `FULL_ACTIVE` | Currently focused page. Renders normally. |
 | `1` | `PARTIAL_ACTIVE` | Page in transition (about to be focused or departing). Rendered but does not receive touch events. |
-| `0` | `INACTIVE` | Inactive page. Rendering is frozen by `react-freeze` and detached from the native view hierarchy by `react-native-screens`. |
+| `0` | `INACTIVE` | Inactive page. Detached from the native view hierarchy by `react-native-screens`, and frozen by `react-freeze` when `freeze` is on. |
 
 This prevents unnecessary re-renders of off-screen children and reduces native view hierarchy overhead.
 
-`react-freeze` hides a frozen subtree behind Suspense, so going inactive is a lifecycle event: React destroys the page's layout effects and calls `componentWillUnmount` on its class components, then runs both again when the page comes back. Component state and passive effects (`useEffect`) survive. Freezing only stops a page that is already mounted, so it never keeps one from mounting: a page rendered up front by `lazy={false}` mounts once and is frozen from the next commit. Pass `freeze={false}` to keep inactive pages live.
+### Freezing Inactive Pages
+
+`freeze` is **off by default**. Turn it on and an INACTIVE page is wrapped in [react-freeze](https://github.com/software-mansion/react-freeze), which hides its subtree behind Suspense so the page stops re-rendering while it is off screen.
+
+Freezing rewrites the page's lifecycle. Going inactive destroys the page's layout effects and calls `componentWillUnmount` on its class components; coming back runs both again. Component state and passive effects (`useEffect`) survive. So mount is no longer a once-per-page event, and everything a page tears down on the way out has to be able to come back. `FlatList` is a class component, which means a frozen page runs that round trip on every visit.
+
+Freezing only stops a page that already exists, so it never keeps one from mounting. A page rendered up front by `lazy={false}` renders once and is frozen from the next commit.
+
+**The new architecture pays for this differently.** Hiding a subtree reaches the native views, and on the old architecture React sends one `UIManager.updateView` with `display: 'none'` to the view that is already mounted. Fabric's renderer is persistent and cannot mutate, so instead it clones the hidden host nodes with `display: none` (`cloneHiddenInstance`) and re-appends the parent's child set. Every freeze and unfreeze is therefore a shadow-tree commit and a mount transaction on the main queue, and under `renderMode="native"` those transactions already carry the pager's transition and the screens' attach/detach for the same commit.
+
+**Switching very rapidly between heavy pages with `freeze` on has been reported to crash the app.** `react-native-screens` also keeps its own freeze behind an explicit `enableFreeze()` call, which stays off unless an app opts in.
+
+Turn `freeze` on only when off-screen pages measurably cost you re-renders, and put rapid switching through QA on a real device on the architecture you ship.
 
 ### FlatList Integration
 
@@ -165,7 +177,7 @@ The library cannot prevent the handoff. When a specific scrollable competes with
 | `vertical` | `boolean` | `false` | Set to `true` to transition vertically. |
 | `keepAlive` | `number` | `undefined` (unlimited) | Maximum number of pages to keep mounted. Used for memory optimization. |
 | `lazy` | `boolean` | `true` | Mount a page when it is first visited instead of on the first render. Set to `false` to mount every page up front (ignored when `keepAlive` is set); pages parked off screen mount once the container has been measured. Mounted pages stay mounted unless `keepAlive` limits them. |
-| `freeze` | `boolean` | `true` | Whether to apply `react-freeze` to inactive pages. See [Rendering Optimization](#rendering-optimization) for what freezing does to a page's lifecycle. |
+| `freeze` | `boolean` | `false` | Whether to apply `react-freeze` to inactive pages. Read [Freezing Inactive Pages](#freezing-inactive-pages) before turning this on: it changes a page's lifecycle, costs more on the new architecture, and has been reported to crash under very rapid switching between heavy pages. |
 | `layout` | `{ width?: number; height?: number }` | - | Manually specify container size. Auto-measured via `onLayout` if not provided. |
 | `style` | `StyleProp<ViewStyle>` | - | Container style. |
 | `onSwipeStart` | `() => void` | - | Called when a swipe gesture starts. |

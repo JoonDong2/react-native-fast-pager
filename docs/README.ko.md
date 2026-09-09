@@ -16,11 +16,23 @@ React Native을 위한 스와이프 가능한 화면 전환 컴포넌트입니�
 |---|---|---|
 | `2` | `FULL_ACTIVE` | 현재 포커스된 화면. 정상적으로 렌더링됩니다. |
 | `1` | `PARTIAL_ACTIVE` | 전환 중인 화면(포커스 예정 또는 떠나는 중). 렌더링은 되지만 터치 이벤트를 받지 않습니다. |
-| `0` | `INACTIVE` | 비활성 화면. `react-freeze`에 의해 렌더링이 동결되고, `react-native-screens`에 의해 네이티브 뷰 계층에서 분리됩니다. |
+| `0` | `INACTIVE` | 비활성 화면. `react-native-screens`에 의해 네이티브 뷰 계층에서 분리되고, `freeze`가 켜져 있으면 `react-freeze`에 의해 렌더링이 동결됩니다. |
 
 이 방식으로 현재 보이지 않는 화면의 불필요한 리렌더링을 방지하고, 네이티브 뷰 계층의 부하를 줄입니다.
 
-`react-freeze`는 동결된 서브트리를 Suspense 뒤로 숨기므로, 페이지가 비활성으로 바뀌는 것은 라이프사이클 이벤트입니다. React가 그 페이지의 layout effect를 정리하고 클래스 컴포넌트의 `componentWillUnmount`를 호출하며, 다시 보일 때 둘 다 재실행합니다. 컴포넌트 state와 `useEffect`는 그대로 유지됩니다. 동결은 이미 마운트된 페이지를 멈추는 것이므로 마운트 자체를 막지 않습니다. `lazy={false}`로 미리 렌더되는 페이지는 한 번 마운트된 뒤 다음 커밋부터 동결됩니다. 비활성 페이지를 계속 살려두려면 `freeze={false}`를 지정하세요.
+### 비활성 페이지 동결
+
+`freeze`는 **기본값이 꺼짐**입니다. 켜면 INACTIVE 페이지가 [react-freeze](https://github.com/software-mansion/react-freeze)로 감싸이고, 서브트리가 Suspense 뒤에 숨겨져 화면 밖에 있는 동안 리렌더링을 멈춥니다.
+
+동결은 페이지의 라이프사이클을 바꿉니다. 비활성으로 바뀔 때 layout effect가 정리되고 클래스 컴포넌트의 `componentWillUnmount`가 호출되며, 다시 보일 때 둘 다 재실행됩니다. 컴포넌트 state와 `useEffect`는 유지됩니다. 즉 마운트는 더 이상 페이지당 한 번이 아니고, 페이지가 떠날 때 정리하는 것은 전부 되돌아올 수 있어야 합니다. `FlatList`가 클래스 컴포넌트이므로 동결된 페이지는 방문할 때마다 이 왕복을 겪습니다.
+
+동결은 이미 존재하는 페이지를 멈추는 것이라 마운트 자체를 막지는 않습니다. `lazy={false}`로 미리 렌더되는 페이지는 한 번 렌더된 뒤 다음 커밋부터 동결됩니다.
+
+**New Architecture는 이 비용을 다르게 치릅니다.** 서브트리를 숨기는 일은 네이티브 뷰까지 내려갑니다. 구 아키텍처에서는 이미 마운트된 뷰에 `UIManager.updateView`로 `display: 'none'`을 한 번 보내는 것으로 끝납니다. Fabric의 렌더러는 persistent라 뷰를 변형할 수 없어서, 숨길 호스트 노드를 `display: none`으로 복제하고(`cloneHiddenInstance`) 부모의 자식 집합을 다시 만듭니다. 그래서 동결과 해제가 매번 shadow tree 커밋과 메인 큐 마운트 트랜잭션이 되고, `renderMode="native"`에서는 그 트랜잭션이 이미 pager의 전환과 screens의 attach/detach를 함께 나르고 있습니다.
+
+**무거운 페이지를 매우 빠르게 전환하면서 `freeze`를 켜둔 상태에서 크래시가 보고된 적이 있습니다.** `react-native-screens`도 자체 동결을 `enableFreeze()` 호출 뒤에 두고, 앱이 직접 켜지 않는 한 꺼둡니다.
+
+화면 밖 페이지의 리렌더링 비용이 실제로 측정될 때만 `freeze`를 켜고, 배포하는 아키텍처의 실기기에서 빠른 전환을 QA에 포함하세요.
 
 ### FlatList 연동
 
@@ -165,7 +177,7 @@ iOS에서는 `blockNativeResponder`가 버려집니다. 레거시 렌더러는 �
 | `vertical` | `boolean` | `false` | `true`로 설정하면 세로 방향으로 전환합니다. |
 | `keepAlive` | `number` | `undefined` (무제한) | 마운트 상태를 유지할 최대 페이지 수. 메모리 최적화에 사용합니다. |
 | `lazy` | `boolean` | `true` | 페이지를 처음 방문할 때(스와이프로 향하거나 `index`/`goTo`로 지정될 때) 마운트합니다. `false`면 모든 페이지를 처음부터 마운트합니다(`keepAlive` 지정 시에는 무시). 화면 밖에 주차된 페이지는 컨테이너가 측정된 뒤에 마운트됩니다. 마운트된 페이지는 `keepAlive`로 제한하지 않는 한 유지됩니다. |
-| `freeze` | `boolean` | `true` | 비활성 페이지에 `react-freeze`를 적용할지 여부. 동결이 페이지 라이프사이클에 미치는 영향은 [렌더링 최적화](#렌더링-최적화)를 참고하세요. |
+| `freeze` | `boolean` | `false` | 비활성 페이지에 `react-freeze`를 적용할지 여부. 켜기 전에 [비활성 페이지 동결](#비활성-페이지-동결)을 읽어보세요. 페이지 라이프사이클이 바뀌고, New Architecture에서 비용이 더 크며, 무거운 페이지를 매우 빠르게 전환할 때 크래시가 보고된 적이 있습니다. |
 | `layout` | `{ width?: number; height?: number }` | - | 컨테이너 크기를 직접 지정합니다. 미지정 시 `onLayout`으로 자동 측정됩니다. |
 | `style` | `StyleProp<ViewStyle>` | - | 컨테이너 스타일. |
 | `onSwipeStart` | `() => void` | - | 스와이프 제스처가 시작될 때 호출됩니다. |
