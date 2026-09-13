@@ -18,7 +18,7 @@ Each child page is assigned an `activityState`:
 | `1` | `PARTIAL_ACTIVE` | Page in transition (about to be focused or departing). Rendered but does not receive touch events. |
 | `0` | `INACTIVE` | Inactive page. Detached from the native view hierarchy by `react-native-screens`, and frozen by `react-freeze` when `freeze` is on. |
 
-This prevents unnecessary re-renders of off-screen children and reduces native view hierarchy overhead.
+Under the default `renderMode="native"`, detaching reduces native view hierarchy overhead. It does not prevent re-renders: a detached page is still mounted and re-renders whenever its props or state change, unless `freeze` is on.
 
 ### Freezing Inactive Pages
 
