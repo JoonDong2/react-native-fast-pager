@@ -41,13 +41,13 @@ The `FastPager` component can be used as a FlatList item, making it easy to buil
 ## Installation
 
 ```sh
-yarn add react-native-fast-pager react-native-screens react-freeze
+yarn add react-native-fast-pager react-native-screens
 ```
 
 or
 
 ```sh
-npm install react-native-fast-pager react-native-screens react-freeze
+npm install react-native-fast-pager react-native-screens
 ```
 
 > Native setup for `react-native-screens` is required. See the [react-native-screens installation guide](https://github.com/software-mansion/react-native-screens#installation).

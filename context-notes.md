@@ -78,3 +78,9 @@
 - 미확인 단서. 같은 Fabric 경로에서 숨길 대상이 text instance(fiber tag 6)면 `throw Error("Not yet implemented.")`로 떨어진다. 다만 RN에서 문자열은 `<Text>` 호스트 아래에 놓이므로 이 경계에 직접 오기는 어렵다. 크래시 원인으로 단정하지 않았고 README에도 넣지 않았다.
 - `PagerItem`의 최초 마운트 보장(`hasRenderedContent`)은 그대로 둔다. `freeze`를 켜는 사용처에서 `lazy={false}`가 여전히 동작해야 하기 때문이다.
 - 배포 주의. `publish.yml`은 major가 1 이상이면 무조건 `npm version patch`다. 기본값 변경이 patch로 나가는 셈이라, semver를 맞추려면 워크플로를 손보거나 수동으로 minor를 올려야 한다.
+
+## react-freeze를 own dependency로 전환 (2026-09-15 추가)
+- `react-freeze`는 `PagerItem.tsx`에서만 쓰는 순수 JS 모듈이라 네이티브 링킹이 없다. `react`/`react-native`/`react-native-screens`를 peer로 두는 이유(앱과 동일 인스턴스를 공유해야 하는 싱글턴/네이티브 뷰 레지스트리 제약)가 여기엔 없다.
+- peer로 남겨둘 이유가 없으니 dependencies로 옮겼다. semver 범위(`^1.0.4`)가 겹치면 yarn/npm이 단일 인스턴스로 dedupe하므로, 앱이 이미 다른 버전을 설치해 뒀어도 충돌하지 않는다.
+- example/package.json의 `react-freeze` 항목은 peerDependencies 요구를 채우려고만 있었다 — example 소스는 이를 직접 import하지 않는다. 라이브러리가 자체 dependencies로 가져오므로 제거해도 example은 그대로 동작한다(root가 `workspaces: ["example"]`을 겸하므로 라이브러리의 dependencies는 repo 루트 node_modules에 설치되고, workspace 심링크를 통해 example에서도 resolve된다).
+- semver: 설치 계약이 "직접 설치" → "자동 포함"으로 바뀌지만 기존에 peer로 설치해 둔 앱도 그대로 동작하는 하위 호환 변경이라 `[minor]` 태그 없이 기본 patch 범프로 처리했다.

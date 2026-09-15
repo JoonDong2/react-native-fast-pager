@@ -41,13 +41,13 @@ React Native을 위한 스와이프 가능한 화면 전환 컴포넌트입니�
 ## 설치
 
 ```sh
-yarn add react-native-fast-pager react-native-screens react-freeze
+yarn add react-native-fast-pager react-native-screens
 ```
 
 또는
 
 ```sh
-npm install react-native-fast-pager react-native-screens react-freeze
+npm install react-native-fast-pager react-native-screens
 ```
 
 > `react-native-screens`의 네이티브 설정이 필요합니다. [react-native-screens 설치 가이드](https://github.com/software-mansion/react-native-screens#installation)를 참고하세요.

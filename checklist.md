@@ -87,3 +87,22 @@
 - [x] `yarn lint`
 - [x] 기본값을 `true`로 되돌리면 새 테스트 2개가 실패하는지 확인
 - [x] `publish.yml` — 커밋 메시지에 `[minor]`가 있으면 minor 범프. 기본값 변경을 patch로 내보내지 않기 위해
+
+---
+
+# 체크리스트 — react-freeze를 peer에서 own dependency로 (2026-09-15)
+
+## 배경
+- `react-freeze`가 peerDependencies에 있어 설치하는 앱이 직접 `yarn add react-freeze`를 해야 했다.
+- 네이티브 코드가 없는 순수 JS 유틸이라 `react`/`react-native`/`react-native-screens`와 달리 앱과 인스턴스를 공유해야 할 이유가 없다.
+
+## 작업
+- [x] package.json — `react-freeze`를 peerDependencies에서 제거, dependencies로 이동 (devDependencies 중복 제거)
+- [x] example/package.json — peerDependencies 요구를 채우려고만 있던 `react-freeze` 직접 의존성 제거
+- [x] README.md, docs/README.ko.md — 설치 안내에서 `react-freeze` 수동 설치 항목 제거
+
+## 검증
+- [x] `yarn install` (기존 eslint 관련 peer 경고만 남고 react-freeze 관련 경고 없음)
+- [x] `yarn typecheck`
+- [x] `yarn test` (43 passed)
+- [x] `yarn lint`

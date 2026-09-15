@@ -17,7 +17,6 @@
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "react-freeze": "^1.0.4",
     "react-native": "0.81.5",
     "react-native-fast-pager": "workspace:*",
     "react-native-screens": "~4.11.1",
