@@ -30,11 +30,16 @@ Freezing rewrites the page's lifecycle. Being frozen destroys the page's layout 
 
 Freezing only stops a page that already exists, so it never keeps one from mounting. A page rendered up front by `lazy={false}` renders once and is then frozen after `freezeDelay` like any other inactive page.
 
-**The new architecture pays for this differently.** Hiding a subtree reaches the native views, and on the old architecture React sends one `UIManager.updateView` with `display: 'none'` to the view that is already mounted. Fabric's renderer is persistent and cannot mutate, so instead it clones the hidden host nodes with `display: none` (`cloneHiddenInstance`) and re-appends the parent's child set. Every freeze and unfreeze is therefore a shadow-tree commit and a mount transaction on the main queue. Under `renderMode="native"` an unfreeze lands in the same commit that attaches the screen, while a freeze lands in a commit of its own, `freezeDelay` after the screen was detached.
+**On the new architecture, what freezing does to native views depends on the platform.** React hides a frozen page by giving its top host view `display: 'none'`. On the old architecture that is one `UIManager.updateView` to the view that is already mounted. Fabric's renderer is persistent and cannot mutate, so instead it clones the hidden host node with `display: none` (`cloneHiddenInstance`) and re-appends the parent's child set. Every freeze and unfreeze is therefore a shadow-tree commit and a mount transaction. In React Native 0.76 and later, what that transaction does to the page's views differs by platform:
+
+- **iOS** leaves a `display: none` subtree out of the mount tree. Freezing removes and deletes every native view in the page, and unfreezing creates and inserts them all again, taken from a recycle pool or made from scratch, so they need not be the instances the page had. Scroll offsets come back because Fabric keeps them in state, but anything that lives only in a native view starts over: images load again, and a WebView's history or a video's playback position is lost unless the component restores it from props or state.
+- **Android** keeps the views. Through 0.82 React Native never leaves hidden views out of the mount tree on Android, and from 0.83 it does so only when the `useTraitHiddenOnAndroid` feature flag is on, which it is not by default. A frozen page is laid out at 0x0 instead and comes back as the same instances. The flag's expected release value is `true`, so check this again when you upgrade React Native.
+
+Under `renderMode="native"` an unfreeze lands in the same commit that attaches the screen, so on iOS a frozen page's views are recreated right as its transition starts. A freeze lands in a commit of its own, `freezeDelay` after the screen was detached.
 
 **Switching very rapidly between heavy pages with `freeze` on has been reported to crash the app.** `react-native-screens` also keeps its own freeze behind an explicit `enableFreeze()` call, which stays off unless an app opts in.
 
-Turn `freeze` on only when off-screen pages measurably cost you re-renders, and put rapid switching through QA on a real device on the architecture you ship.
+Turn `freeze` on only when off-screen pages measurably cost you re-renders, and put rapid switching and returning to a frozen page through QA on real iOS and Android devices on the architecture you ship.
 
 ### FlatList Integration
 
@@ -179,7 +184,7 @@ The library cannot prevent the handoff. When a specific scrollable competes with
 | `vertical` | `boolean` | `false` | Set to `true` to transition vertically. |
 | `keepAlive` | `number` | `undefined` (unlimited) | Maximum number of pages to keep mounted. Used for memory optimization. |
 | `lazy` | `boolean` | `true` | Mount a page when it is first visited instead of on the first render. Set to `false` to mount every page up front (ignored when `keepAlive` is set); pages parked off screen mount once the container has been measured. Mounted pages stay mounted unless `keepAlive` limits them. |
-| `freeze` | `boolean` | `false` | Whether to apply `react-freeze` to inactive pages. Read [Freezing Inactive Pages](#freezing-inactive-pages) before turning this on: it changes a page's lifecycle, costs more on the new architecture, and has been reported to crash under very rapid switching between heavy pages. |
+| `freeze` | `boolean` | `false` | Whether to apply `react-freeze` to inactive pages. Read [Freezing Inactive Pages](#freezing-inactive-pages) before turning this on: it changes a page's lifecycle, deletes and recreates a frozen page's native views on iOS under the new architecture, and has been reported to crash under very rapid switching between heavy pages. |
 | `freezeDelay` | `number` | `1000` | How long, in milliseconds, an inactive page waits before `freeze` freezes it. A page that comes back sooner is never frozen. Has no effect unless `freeze` is on. |
 | `layout` | `{ width?: number; height?: number }` | - | Manually specify container size. Auto-measured via `onLayout` if not provided. |
 | `style` | `StyleProp<ViewStyle>` | - | Container style. |
