@@ -1,5 +1,5 @@
 import { isValidElement, memo, useEffect, useMemo, useState } from 'react';
-import { Animated } from 'react-native';
+import { Animated, View } from 'react-native';
 import { Screen } from 'react-native-screens';
 import { Freeze } from 'react-freeze';
 import { ActivityState, type PagerItemProps } from './types';
@@ -143,7 +143,17 @@ export const PagerItem = memo(
             activityState === ActivityState.FULL_ACTIVE ? 'auto' : 'none'
           }
         >
-          <Freeze freeze={shouldFreeze}>{childContent}</Freeze>
+          <Freeze freeze={shouldFreeze}>
+            <View
+              // Page content gets a native view of its own, which view
+              // flattening would otherwise fold into the screen. Inside
+              // Freeze, it is also the one view a freeze hides.
+              collapsable={false}
+              style={styles.itemContent}
+            >
+              {childContent}
+            </View>
+          </Freeze>
         </AnimatedScreen>
       );
     }

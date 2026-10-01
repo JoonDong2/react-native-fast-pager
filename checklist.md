@@ -130,3 +130,22 @@
 - [x] `yarn lint`
 - [x] 변경 전 `PagerItem`에서 새 테스트가 실패하는지 확인 (5개 실패)
 - [x] 렌더 중 리셋을 지우면 해당 테스트가 실패하는지 확인. 타이머 cleanup을 지울 때, `FastPager`가 `freezeDelay`를 넘기지 않을 때도 각각 해당 테스트 1개씩 실패
+
+---
+
+# 체크리스트 — 네이티브 페이지 콘텐츠를 non-collapsable View로 감싸기 (2026-10-02)
+
+## 배경
+- 요청: `PagerItem`이 `useNativeScreens: true`일 때 `childContent`를 `View`로 감싼다. `collapsable={false}`, 스타일은 `flex: 1`.
+
+## 작업
+- [x] `styles.ts` — `itemContent: { flex: 1 }`
+- [x] `PagerItem` — 네이티브 분기에서 `Freeze` 안쪽에 `<View collapsable={false} style={styles.itemContent}>`로 `childContent`를 감쌈. view 모드는 그대로
+- [x] 테스트 추가 (네이티브 모드 래퍼 구조와 동결 시 래퍼 자체가 숨겨짐, view 모드는 래퍼 없음)
+
+## 검증
+- [x] `yarn test` (49 passed)
+- [x] `yarn typecheck`
+- [x] `yarn lint`
+- [x] 변경 전 `PagerItem`에서 새 테스트가 실패하는지 확인 (네이티브 래퍼 테스트 실패, view 모드 테스트는 통과)
+- [x] 래퍼를 `Freeze` 바깥으로 옮기면 동결 단언이 실패하는지 확인

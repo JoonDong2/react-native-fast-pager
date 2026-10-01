@@ -8,7 +8,11 @@ import {
 } from '@jest/globals';
 import React from 'react';
 import { act, create } from 'react-test-renderer';
-import type { ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
+import type {
+  ReactTestInstance,
+  ReactTestRenderer,
+  ReactTestRendererJSON,
+} from 'react-test-renderer';
 import { Animated, StyleSheet, View } from 'react-native';
 import type { ViewStyle } from 'react-native';
 import { ActivityState } from '../types';
@@ -449,5 +453,57 @@ describe('PagerItem native rendering', () => {
 
     expect(unmeasured.width).toBeUndefined();
     expect(measured.width).toBe(100);
+  });
+
+  it('wraps native page content in a non-collapsable view that a freeze hides', () => {
+    jest.useFakeTimers();
+    const page = createCountingPage();
+
+    act(() => {
+      renderer = create(page.render(ActivityState.FULL_ACTIVE));
+    });
+
+    const screen = renderer.toJSON() as ReactTestRendererJSON;
+    expect(screen.type).toBe('NativeScreen');
+    expect(screen.children).toHaveLength(1);
+    const wrapper = screen.children![0] as ReactTestRendererJSON;
+    expect(wrapper.type).toBe('View');
+    expect(wrapper.props.collapsable).toBe(false);
+    expect(StyleSheet.flatten(wrapper.props.style)).toEqual({ flex: 1 });
+    expect(
+      wrapper.children?.map(
+        (child) => (child as ReactTestRendererJSON).props.testID
+      )
+    ).toEqual(['counting']);
+
+    // Freezing hides the wrapper itself rather than what is inside it.
+    update(page.render(ActivityState.INACTIVE));
+    advance(FREEZE_DELAY);
+    expect((renderer.toJSON() as ReactTestRendererJSON).children).toBeNull();
+  });
+
+  it('leaves view render mode content unwrapped', () => {
+    act(() => {
+      renderer = create(
+        <PagerItem
+          position={1}
+          isLayoutOwner
+          containerSize={100}
+          animationType="slide"
+          activityState={ActivityState.FULL_ACTIVE}
+          priority={2}
+          useNativeScreens={false}
+        >
+          <View testID="view-mode" />
+        </PagerItem>
+      );
+    });
+
+    const page = renderer.toJSON() as ReactTestRendererJSON;
+    expect(
+      page.children?.map(
+        (child) => (child as ReactTestRendererJSON).props.testID
+      )
+    ).toEqual(['view-mode']);
   });
 });

@@ -97,3 +97,10 @@
 - 기본값은 `PagerItem` 한 곳(`freezeDelay = 1000`)에만 둔다. `FastPager`는 받은 값을 그대로 넘기고, `undefined`면 `PagerItem`의 기본값이 적용된다.
 - 동작 변화: render function 자식은 이제 동결되기 전에 `activityState: 0`으로 렌더된다. 이전에는 INACTIVE가 되는 커밋 자체가 동결돼서 콘텐츠가 그 값을 받지 못했다. 또 `renderMode="native"`에서 동결이 screens의 detach와 같은 커밋에 실리지 않고 지연 뒤 별도 커밋으로 들어간다.
 - semver: 새 prop이고 `freeze`를 켠 사용처의 동결 시점이 바뀌므로 커밋 메시지에 `[minor]`.
+
+## 네이티브 페이지 콘텐츠 래퍼 (2026-10-02 추가)
+- 요청: `useNativeScreens: true`일 때 `childContent`를 `collapsable={false}`, `flex: 1`인 `View`로 감싼다. view 모드는 이미 `Freeze` 바로 아래에 `Animated.View` 하나가 있으므로 대상이 아니다.
+- 배치: `<Freeze><View>{childContent}</View></Freeze>`. 요청을 문자 그대로(`{childContent}` 자리를 감싸기) 읽었다. `freeze`가 꺼진 기본값에서는 `Freeze` 바깥에 두는 것과 트리가 같다. 켜져 있으면 차이가 생긴다. React는 숨겨지는 서브트리의 최상위 호스트 노드만 숨기므로(Fabric에서는 `cloneHiddenInstance`로 `display: none` 복제), 안쪽 배치에서는 이 래퍼 하나만 숨겨지고 view 모드와 같은 모양이 된다. 바깥 배치에서는 래퍼가 남고 콘텐츠의 최상위 노드들이 각각 숨겨진다.
+- 어느 쪽이든 동결 시 콘텐츠가 마운트 트리에서 빠지는 점은 같다. `display: none` 노드는 `Trait::Hidden`이 되고(`ConcreteViewShadowNode.h:108`), 마운팅이 그 서브트리를 건너뛴다(`sliceChildShadowNodeViewPairs.cpp:62`). 단 RN 0.81.5에서 이 건너뛰기는 `#ifndef ANDROID`로 iOS에만 적용된다.
+- `collapsable={false}`가 없으면 `flex: 1`만 가진 `View`는 레이아웃 전용이라 Fabric 뷰 평탄화로 사라지고 자식이 screen에 바로 붙는다. 이 속성으로 래퍼가 항상 네이티브 뷰로 존재한다.
+- 레이아웃 영향: screen도 래퍼도 기본 column flex 컨테이너이고 래퍼가 `flex: 1`로 screen을 채우므로, 콘텐츠가 받는 레이아웃은 감싸기 전과 같다.

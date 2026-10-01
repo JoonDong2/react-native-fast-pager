@@ -15,4 +15,7 @@ export const styles = StyleSheet.create({
   itemContainer: {
     flex: 1,
   },
+  itemContent: {
+    flex: 1,
+  },
 });
