@@ -1244,6 +1244,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
       animationType,
       vertical,
       freeze = false,
+      freezeDelay,
     } = this.props;
 
     const containerSize = this.getCurrentContainerSize();
@@ -1291,6 +1292,7 @@ class FastPager extends Component<FastPagerProps, FastPagerState> {
                   priority={activityState}
                   useNativeScreens={useNativeScreens}
                   freeze={freeze}
+                  freezeDelay={freezeDelay}
                 >
                   {children[i]!}
                 </PagerItem>

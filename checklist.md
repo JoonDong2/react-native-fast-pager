@@ -106,3 +106,27 @@
 - [x] `yarn typecheck`
 - [x] `yarn test` (43 passed)
 - [x] `yarn lint`
+
+---
+
+# 체크리스트 — `freezeDelay` 옵션 (2026-10-02)
+
+## 배경
+- 요청: `freezeDelay` 옵션 추가 (기본값 1000, 단위 ms). 포커스가 해제되어 동결될 때 `freezeDelay`가 지난 뒤에 실제로 동결되도록.
+- 지금은 페이지가 INACTIVE가 되는 커밋에서 바로 동결되고, 다시 보이면 바로 해제된다. 빠르게 오가면 이동할 때마다 동결과 해제가 반복된다.
+
+## 작업
+- [x] `types.ts` — `FastPagerProps`, `PagerItemProps`에 `freezeDelay?: number`
+- [x] `PagerItem` — 렌더된 페이지는 INACTIVE로 `freezeDelay` 동안 머문 뒤에 동결. 돌아오면 같은 렌더에서 해제하고, 다음 이탈 때 지연을 처음부터 다시 셈
+- [x] `PagerItem` — 측정 전 보류(`containerSize === 0`)는 지연 없이 유지
+- [x] `FastPager` — `freezeDelay`를 각 `PagerItem`에 전달
+- [x] 즉시 동결을 가정하던 기존 테스트 2개 갱신
+- [x] 테스트 추가 (지연 뒤 동결, 지연 전에 돌아오면 취소, 동결된 페이지가 돌아오면 즉시 해제 후 지연 재시작, FastPager의 `freezeDelay` 전달)
+- [x] README.md, docs/README.ko.md — Props 표, `activityState` 표, 비활성 페이지 동결 섹션
+
+## 검증
+- [x] `yarn test` (47 passed)
+- [x] `yarn typecheck`
+- [x] `yarn lint`
+- [x] 변경 전 `PagerItem`에서 새 테스트가 실패하는지 확인 (5개 실패)
+- [x] 렌더 중 리셋을 지우면 해당 테스트가 실패하는지 확인. 타이머 cleanup을 지울 때, `FastPager`가 `freezeDelay`를 넘기지 않을 때도 각각 해당 테스트 1개씩 실패

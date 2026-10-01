@@ -91,8 +91,48 @@ const readPositionStyle = (screen: ReactTestInstance) => {
   return undefined;
 };
 
+const FREEZE_DELAY = 300;
+
+// A frozen page stops re-rendering, so counting its content's renders tells a
+// frozen page from a live one.
+const createCountingPage = () => {
+  const counter = { renders: 0 };
+  const Content = () => {
+    counter.renders += 1;
+    return <View testID="counting" />;
+  };
+  const render = (activityState: ActivityState) => (
+    <PagerItem
+      position={activityState === ActivityState.INACTIVE ? 2 : 1}
+      isLayoutOwner={activityState === ActivityState.FULL_ACTIVE}
+      containerSize={100}
+      animationType="slide"
+      activityState={activityState}
+      priority={activityState}
+      useNativeScreens
+      freeze
+      freezeDelay={FREEZE_DELAY}
+    >
+      <Content />
+    </PagerItem>
+  );
+  return { counter, render };
+};
+
 describe('PagerItem native rendering', () => {
   let renderer: ReactTestRenderer;
+
+  const update = (element: React.ReactElement) => {
+    act(() => {
+      renderer.update(element);
+    });
+  };
+
+  const advance = (ms: number) => {
+    act(() => {
+      jest.advanceTimersByTime(ms);
+    });
+  };
 
   beforeAll(() => {
     (
@@ -106,6 +146,7 @@ describe('PagerItem native rendering', () => {
     act(() => {
       renderer?.unmount();
     });
+    jest.useRealTimers();
   });
 
   it('uses the real Animated graph for a fixed-slot 0 -> 2 transition', () => {
@@ -165,6 +206,7 @@ describe('PagerItem native rendering', () => {
   });
 
   it('keeps an inactive native page detached, mounted once and frozen', () => {
+    jest.useFakeTimers();
     let renders = 0;
     let mounts = 0;
     const Content = () => {
@@ -207,10 +249,10 @@ describe('PagerItem native rendering', () => {
     expect(renders).toBe(1);
     expect(mounts).toBe(1);
 
-    // From the next commit on the page is frozen, so it stops re-rendering.
-    act(() => {
-      renderer.update(item(120));
-    });
+    // Once it has been inactive for the default freezeDelay the page is
+    // frozen, so it stops re-rendering.
+    advance(1000);
+    update(item(120));
     expect(renders).toBe(1);
   });
 
@@ -242,6 +284,75 @@ describe('PagerItem native rendering', () => {
     // A page that has never been shown cannot be laid out at a container size
     // that is not settled yet.
     expect(renders).toBe(0);
+  });
+
+  it('freezes a page only once it has stayed inactive for freezeDelay', () => {
+    jest.useFakeTimers();
+    const page = createCountingPage();
+
+    act(() => {
+      renderer = create(page.render(ActivityState.FULL_ACTIVE));
+    });
+    update(page.render(ActivityState.INACTIVE));
+    expect(page.counter.renders).toBe(2);
+
+    // Re-rendering while it waits does not start the delay over.
+    advance(FREEZE_DELAY - 1);
+    update(page.render(ActivityState.INACTIVE));
+    expect(page.counter.renders).toBe(3);
+
+    advance(1);
+    update(page.render(ActivityState.INACTIVE));
+    expect(page.counter.renders).toBe(3);
+  });
+
+  it('never freezes a page that comes back before freezeDelay runs out', () => {
+    jest.useFakeTimers();
+    const page = createCountingPage();
+
+    act(() => {
+      renderer = create(page.render(ActivityState.FULL_ACTIVE));
+    });
+    update(page.render(ActivityState.INACTIVE));
+    advance(200);
+    update(page.render(ActivityState.PARTIAL_ACTIVE));
+    update(page.render(ActivityState.INACTIVE));
+
+    // Past the first departure's deadline the page is still live: coming back
+    // cancelled that countdown, and leaving again started a new one.
+    advance(200);
+    const renders = page.counter.renders;
+    update(page.render(ActivityState.INACTIVE));
+    expect(page.counter.renders).toBe(renders + 1);
+
+    advance(FREEZE_DELAY - 200);
+    update(page.render(ActivityState.INACTIVE));
+    expect(page.counter.renders).toBe(renders + 1);
+  });
+
+  it('unfreezes a page as soon as it comes back and waits out freezeDelay again', () => {
+    jest.useFakeTimers();
+    const page = createCountingPage();
+
+    act(() => {
+      renderer = create(page.render(ActivityState.FULL_ACTIVE));
+    });
+    update(page.render(ActivityState.INACTIVE));
+    advance(FREEZE_DELAY);
+    const renders = page.counter.renders;
+    update(page.render(ActivityState.INACTIVE));
+    expect(page.counter.renders).toBe(renders);
+
+    update(page.render(ActivityState.PARTIAL_ACTIVE));
+    expect(page.counter.renders).toBe(renders + 1);
+
+    // Having been frozen once does not freeze it the moment it leaves again.
+    update(page.render(ActivityState.INACTIVE));
+    expect(page.counter.renders).toBe(renders + 2);
+
+    advance(FREEZE_DELAY);
+    update(page.render(ActivityState.INACTIVE));
+    expect(page.counter.renders).toBe(renders + 2);
   });
 
   it('keeps reverse vertical 2 -> 0 positions symmetric', () => {

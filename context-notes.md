@@ -84,3 +84,16 @@
 - peer로 남겨둘 이유가 없으니 dependencies로 옮겼다. semver 범위(`^1.0.4`)가 겹치면 yarn/npm이 단일 인스턴스로 dedupe하므로, 앱이 이미 다른 버전을 설치해 뒀어도 충돌하지 않는다.
 - example/package.json의 `react-freeze` 항목은 peerDependencies 요구를 채우려고만 있었다 — example 소스는 이를 직접 import하지 않는다. 라이브러리가 자체 dependencies로 가져오므로 제거해도 example은 그대로 동작한다(root가 `workspaces: ["example"]`을 겸하므로 라이브러리의 dependencies는 repo 루트 node_modules에 설치되고, workspace 심링크를 통해 example에서도 resolve된다).
 - semver: 설치 계약이 "직접 설치" → "자동 포함"으로 바뀌지만 기존에 peer로 설치해 둔 앱도 그대로 동작하는 하위 호환 변경이라 `[minor]` 태그 없이 기본 patch 범프로 처리했다.
+
+## `freezeDelay` 추가 (2026-10-02 추가)
+- 요청: `freezeDelay` 옵션(기본값 1000ms). 포커스를 잃은 페이지가 그 시간이 지난 뒤에 실제로 동결되도록.
+- 규칙: 한 번이라도 렌더된 페이지는 INACTIVE로 `freezeDelay` 동안 연속으로 머물러야 동결된다. 그 전에 돌아오면 타이머가 취소돼 동결이 아예 일어나지 않는다. 그래서 지연보다 빠르게 오가는 전환은 동결/해제 커밋을 만들지 않는다.
+- 해제는 지연하지 않는다. 돌아오는 렌더에서 바로 해제해야 스와이프 미리보기와 전환 대상이 숨겨지지 않는다(기존 `wantsFreeze`를 INACTIVE로 한정한 이유와 같다).
+- 측정 전 보류도 지연하지 않는다. 한 번도 렌더된 적 없는 페이지를 `containerSize === 0` 동안 막는 것은 존재하는 페이지를 멈추는 동결이 아니라, 정착하지 않은 크기로 레이아웃되는 것을 막는 장치다(`a568de7`). 지연하면 그 문제가 지연 시간만큼 되살아난다.
+- `lazy={false}`로 INACTIVE 상태에서 태어난 페이지도 같은 규칙을 따른다. 지연은 첫 렌더 이후부터 센다(`hasRenderedContent`가 타이머 조건에 들어간 이유). 타이머를 탄생 시점부터 세면 측정이 지연보다 늦을 때 첫 렌더 직후 곧바로 동결돼 페이지마다 동결 시점이 달라진다.
+- 지연 경과 플래그(`freezeDelayElapsed`)는 페이지가 돌아오는 렌더 도중에 리셋한다(렌더 중 setState, React 문서의 "prop이 바뀔 때 state 조정" 패턴). 리셋하지 않으면 다음 이탈 때 플래그가 이미 true라 지연 없이 바로 동결된다. effect에서 리셋하면 돌아오는 페이지가 스와이프가 시작되는 시점에 한 번 더 렌더된다(render function 자식이면 콘텐츠까지).
+- 카운트다운 effect의 의존성은 `[waitingToFreeze, freezeDelay]`뿐이다. 기다리는 동안의 리렌더가 타이머를 다시 시작하지 않는다. `freezeDelay` 자체가 바뀌면 새 값으로 처음부터 다시 센다.
+- `freezeDelay={0}`은 `setTimeout(0)`이다. INACTIVE 커밋 바로 다음 틱에 별도 커밋으로 동결되고, 이전 버전처럼 같은 커밋에서 동결되지는 않는다. 차이가 한 커밋뿐이라 특수 처리하지 않았다.
+- 기본값은 `PagerItem` 한 곳(`freezeDelay = 1000`)에만 둔다. `FastPager`는 받은 값을 그대로 넘기고, `undefined`면 `PagerItem`의 기본값이 적용된다.
+- 동작 변화: render function 자식은 이제 동결되기 전에 `activityState: 0`으로 렌더된다. 이전에는 INACTIVE가 되는 커밋 자체가 동결돼서 콘텐츠가 그 값을 받지 못했다. 또 `renderMode="native"`에서 동결이 screens의 detach와 같은 커밋에 실리지 않고 지연 뒤 별도 커밋으로 들어간다.
+- semver: 새 prop이고 `freeze`를 켠 사용처의 동결 시점이 바뀌므로 커밋 메시지에 `[minor]`.

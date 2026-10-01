@@ -19,6 +19,7 @@ export const PagerItem = memo(
     containerSize,
     useNativeScreens = true,
     freeze = false,
+    freezeDelay = 1000,
   }: PagerItemProps) => {
     const diff = useMemo(() => Animated.subtract(position, 1), [position]);
 
@@ -93,17 +94,39 @@ export const PagerItem = memo(
     // renders a page once it should mount, but lazy={false} renders every page
     // while all but the current one are INACTIVE, and freezing those from
     // birth would leave them unmounted for good. Such a page renders its
-    // content once and is frozen from the next commit - and it waits for the
-    // container to be measured, so it still never lays out at a size that has
-    // not settled.
+    // content once before it can be frozen - and it waits for the container
+    // to be measured, so it still never lays out at a size that has not
+    // settled.
     const [hasRenderedContent, setHasRenderedContent] = useState(!wantsFreeze);
+
+    // Once it has rendered, a page is frozen only after it has stayed inactive
+    // for freezeDelay, so switching back and forth faster than that does not
+    // freeze and unfreeze it on every move. A page that comes back unfreezes
+    // in the same render, which also clears the elapsed flag so the next
+    // departure waits out the whole delay again; clearing it in an effect
+    // instead would re-render the page as its transition starts.
+    const [freezeDelayElapsed, setFreezeDelayElapsed] = useState(false);
+    if (freezeDelayElapsed && !wantsFreeze) {
+      setFreezeDelayElapsed(false);
+    }
+
     const shouldFreeze =
-      wantsFreeze && (hasRenderedContent || containerSize === 0);
+      wantsFreeze &&
+      (hasRenderedContent ? freezeDelayElapsed : containerSize === 0);
 
     useEffect(() => {
       if (shouldFreeze || hasRenderedContent) return;
       setHasRenderedContent(true);
     }, [shouldFreeze, hasRenderedContent]);
+
+    const waitingToFreeze =
+      wantsFreeze && hasRenderedContent && !freezeDelayElapsed;
+
+    useEffect(() => {
+      if (!waitingToFreeze) return;
+      const timer = setTimeout(() => setFreezeDelayElapsed(true), freezeDelay);
+      return () => clearTimeout(timer);
+    }, [waitingToFreeze, freezeDelay]);
 
     if (useNativeScreens) {
       return (

@@ -75,6 +75,7 @@ describe('FastPager mounting', () => {
     act(() => {
       renderer?.unmount();
     });
+    jest.useRealTimers();
   });
 
   it('mounts only the page it starts on by default', () => {
@@ -145,6 +146,7 @@ describe('FastPager mounting', () => {
   });
 
   it('leaves inactive pages rendering by default and stops them when frozen', () => {
+    jest.useFakeTimers();
     const renders: Record<string, number> = {};
 
     const Counted = ({ name }: { name: string }) => {
@@ -187,10 +189,64 @@ describe('FastPager mounting', () => {
     });
     expect(renders.b).toBe(1);
 
+    // It keeps rendering until it has been inactive for the default
+    // freezeDelay of one second.
+    act(() => {
+      jest.advanceTimersByTime(999);
+    });
     act(() => {
       renderer.update(frozen());
     });
-    expect(renders.b).toBe(1);
+    expect(renders.b).toBe(2);
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    act(() => {
+      renderer.update(frozen());
+    });
+    expect(renders.b).toBe(2);
+  });
+
+  it('freezes inactive pages after the freezeDelay it is given', () => {
+    jest.useFakeTimers();
+    let renders = 0;
+
+    const Counted = () => {
+      renders += 1;
+      return <View testID="page-b" />;
+    };
+
+    const frozen = () => (
+      <FastPager
+        index={0}
+        lazy={false}
+        freeze
+        freezeDelay={300}
+        layout={{ width: 100 }}
+      >
+        {[<View key="a" testID="page-a" />, <Counted key="b" />]}
+      </FastPager>
+    );
+
+    act(() => {
+      renderer = create(frozen());
+    });
+    act(() => {
+      jest.advanceTimersByTime(299);
+    });
+    act(() => {
+      renderer.update(frozen());
+    });
+    expect(renders).toBe(2);
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    act(() => {
+      renderer.update(frozen());
+    });
+    expect(renders).toBe(2);
   });
 
   it('mounts a page the index prop moves to', () => {

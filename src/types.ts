@@ -45,6 +45,7 @@ export interface FastPagerProps {
   animationType?: AnimationType;
   onLayout?: (event: LayoutChangeEvent) => void;
   freeze?: boolean;
+  freezeDelay?: number;
 }
 
 export interface FastPagerInstance {
@@ -73,4 +74,5 @@ export interface PagerItemProps {
   priority: number;
   useNativeScreens?: boolean;
   freeze?: boolean;
+  freezeDelay?: number;
 }
